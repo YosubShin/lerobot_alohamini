@@ -22,21 +22,27 @@ from ..config import RobotConfig
 
 def lekiwi_cameras_config() -> dict[str, CameraConfig]:
     return {
-        # "forward": OpenCVCameraConfig(
-        #     index_or_path="/dev/am_camera_forward", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
-        # ),
+        # NOTE: on the CLIENT these are only used to know each camera's name + dimensions so incoming
+        # frames from the host are decoded/recorded. The client does NOT open them locally. Must match the
+        # host's active cameras (forward, wrist_left, wrist_right).
+        "forward": OpenCVCameraConfig(
+            index_or_path="/dev/am_camera_forward", fps=30, width=320, height=240, rotation=Cv2Rotation.NO_ROTATION
+        ),
         # "backward": OpenCVCameraConfig(
-        #     index_or_path="/dev/am_camera_backward", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+        #     index_or_path="/dev/am_camera_backward", fps=30, width=320, height=240, rotation=Cv2Rotation.NO_ROTATION
         # ),
         # "chest": OpenCVCameraConfig(
-        #     index_or_path="/dev/am_camera_chest", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+        #     index_or_path="/dev/am_camera_chest", fps=30, width=320, height=240, rotation=Cv2Rotation.NO_ROTATION
         # ),
+        # wrist_left disabled 2026-07-28: camera is physically unplugged (its USB dropouts were
+        # crash-looping the host, and current policies train on forward + wrist_right only).
+        # Re-enable here AND on the Pi host's copy before collecting bimanual data again.
         # "wrist_left": OpenCVCameraConfig(
-        #     index_or_path="/dev/am_camera_wrist_left", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+        #     index_or_path="/dev/am_camera_wrist_left", fps=30, width=320, height=240, rotation=Cv2Rotation.NO_ROTATION
         # ),
-        # "wrist_right": OpenCVCameraConfig(
-        #     index_or_path="/dev/am_camera_wrist_right", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
-        # ),
+        "wrist_right": OpenCVCameraConfig(
+            index_or_path="/dev/am_camera_wrist_right", fps=30, width=320, height=240, rotation=Cv2Rotation.NO_ROTATION
+        ),
     }
 
 
@@ -101,6 +107,16 @@ class LeKiwiClientConfig(RobotConfig):
     # alohamini2   – am-follower-6dof (7 joints per arm, includes wrist_yaw)
     # alohamini2pro– am-follower-6dof-hd (7 joints per arm, includes wrist_yaw)
     robot_model: str = "alohamini1"
+
+    # Per-component control gates. A disabled component is FROZEN at its current pose
+    # (arms/lift held at the pose latched when the loop starts; base velocity forced to 0)
+    # for BOTH the command sent to the robot and the value recorded into the dataset.
+    # Lets an episode target only some DoFs (e.g. right-arm-only) while keeping the full
+    # 16-D action/state schema intact so datasets stay mergeable across configs.
+    enable_left_arm: bool = True
+    enable_right_arm: bool = True
+    enable_base: bool = True
+    enable_lift: bool = True
 
     teleop_keys: dict[str, str] = field(
         default_factory=lambda: {

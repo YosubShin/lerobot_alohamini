@@ -71,6 +71,9 @@ class LeKiwiClient(Robot):
         self.last_remote_state = {}
         self._lift_target_mm = None
 
+        # Latched hold-poses for disabled components (see _apply_component_mask); reset on connect().
+        self._held_action = {}
+
         # Define three speed levels and a current index
         self.speed_levels = [
             {"xy": 0.15, "theta": 45},  # slow
@@ -132,14 +135,18 @@ class LeKiwiClient(Robot):
         zmq = self._zmq
         self.zmq_context = zmq.Context()
         self.zmq_cmd_socket = self.zmq_context.socket(zmq.PUSH)
+        # CONFLATE + LINGER must be set BEFORE connect() or they are silently ignored.
+        # Without this the PUSH socket buffers up to 1000 commands -> lag + phantom motion after quit.
+        self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)  # keep only the newest command
+        self.zmq_cmd_socket.setsockopt(zmq.LINGER, 0)    # drop any unsent command on close
         zmq_cmd_locator = f"tcp://{self.remote_ip}:{self.port_zmq_cmd}"
         self.zmq_cmd_socket.connect(zmq_cmd_locator)
-        self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)
 
         self.zmq_observation_socket = self.zmq_context.socket(zmq.PULL)
+        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # before connect() to take effect
+        self.zmq_observation_socket.setsockopt(zmq.LINGER, 0)
         zmq_observations_locator = f"tcp://{self.remote_ip}:{self.port_zmq_observations}"
         self.zmq_observation_socket.connect(zmq_observations_locator)
-        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)
 
         poller = zmq.Poller()
         poller.register(self.zmq_observation_socket, zmq.POLLIN)
@@ -147,6 +154,7 @@ class LeKiwiClient(Robot):
         if self.zmq_observation_socket not in socks or socks[self.zmq_observation_socket] != zmq.POLLIN:
             raise DeviceNotConnectedError("Timeout waiting for AlohaMini Host to connect expired.")
 
+        self._held_action = {}  # re-latch disabled-component hold poses fresh for this session
         self._is_connected = True
 
     def calibrate(self) -> None:
@@ -365,6 +373,35 @@ class LeKiwiClient(Robot):
     def configure(self):
         pass
 
+    def _apply_component_mask(self, action: RobotAction) -> RobotAction:
+        """Freeze components disabled in the config. A disabled arm/lift is held at the pose
+        latched on the first call (taken from the actual observed state, so leader droop is
+        irrelevant); a disabled base is forced to zero velocity. Applied before both the ZMQ
+        send and the recorded-action derivation so command and dataset stay identical."""
+        cfg = self.config
+        if cfg.enable_left_arm and cfg.enable_right_arm and cfg.enable_base and cfg.enable_lift:
+            return action  # everything active — no-op fast path
+
+        action = dict(action)
+        hold_keys = []
+        if not cfg.enable_left_arm:
+            hold_keys += list(self._left_arm_state_keys)
+        if not cfg.enable_right_arm:
+            hold_keys += list(self._right_arm_state_keys)
+        if not cfg.enable_lift:
+            hold_keys.append("lift_axis.height_mm")
+        for k in hold_keys:
+            if k not in self._held_action:
+                # Latch the current observed pose (fall back to the commanded value if unseen yet).
+                self._held_action[k] = float(self.last_remote_state.get(k, action.get(k, 0.0)))
+            action[k] = self._held_action[k]
+
+        if not cfg.enable_base:
+            action["x.vel"] = 0.0
+            action["y.vel"] = 0.0
+            action["theta.vel"] = 0.0
+        return action
+
     @check_if_not_connected
     def send_action(self, action: RobotAction) -> RobotAction:
         """Command AlohaMini to move to a target joint configuration. Translates to motor space + sends over ZMQ
@@ -378,6 +415,7 @@ class LeKiwiClient(Robot):
         Returns:
             np.ndarray: the action sent to the motors, potentially clipped.
         """
+        action = self._apply_component_mask(action)  # freeze any disabled components (right-arm-only, etc.)
         self.zmq_cmd_socket.send_string(json.dumps(action))  # action is in motor space
 
         # TODO(Steven): Remove the np conversion when it is possible to record a non-numpy array value

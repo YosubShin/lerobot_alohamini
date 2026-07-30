@@ -82,6 +82,10 @@ def to_absolute_actions(actions: Tensor, state: Tensor, mask: Sequence[bool]) ->
 
 
 @ProcessorStepRegistry.register("relative_actions_processor")
+# Alias for the mainline/OpenPI name used in older published checkpoints (e.g. lerobot/pi05_base's
+# preprocessor). Inner decorator = only a lookup alias; _registry_name stays "relative_actions_processor"
+# so our own saved checkpoints use the canonical name.
+@ProcessorStepRegistry.register("delta_actions_processor")
 @dataclass
 class RelativeActionsProcessorStep(ProcessorStep):
     """Converts absolute actions to relative actions (action -= state) for masked dimensions.

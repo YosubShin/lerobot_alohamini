@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from email import parser
+import time
+
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.constants import HF_LEROBOT_HOME
 from lerobot.utils.feature_utils import hw_to_dataset_features
@@ -67,6 +69,13 @@ def main():
         default=True,
         help="Whether to upload the dataset to Hugging Face Hub after recording. Use '--push_to_hub false' to skip upload.",
     )
+    # Per-component control gates. Disabled components are frozen at their start pose (arms/lift)
+    # or zero velocity (base) for both command and recording. Default: everything enabled.
+    for _comp in ("left_arm", "right_arm", "base", "lift"):
+        parser.add_argument(
+            f"--enable_{_comp}", type=parse_bool, nargs="?", const=True, default=True,
+            help=f"Enable teleop of the {_comp}. Use '--enable_{_comp} false' to freeze it.",
+        )
 
     args = parser.parse_args()
 
@@ -75,6 +84,10 @@ def main():
         remote_ip=args.remote_ip,
         id=args.robot_id,
         robot_model=args.robot_model,
+        enable_left_arm=args.enable_left_arm,
+        enable_right_arm=args.enable_right_arm,
+        enable_base=args.enable_base,
+        enable_lift=args.enable_lift,
     )
     leader_arm_config = BiSOLeaderConfig(
         left_arm_config=SOLeaderConfig(
@@ -132,9 +145,18 @@ def main():
         raise ValueError("Robot or teleop is not connected!")
 
     print("Starting record loop...")
+    print("\n  CONTROLS:")
+    print("    RIGHT ARROW  = finish + save current episode  (also skips the reset wait)")
+    print("    LEFT ARROW   = discard + re-record the last episode")
+    print("    ESC          = stop recording and save the dataset")
+    print("  Each cycle: RECORD episode  ->  RESET (reposition)  ->  save/encode  ->  next\n", flush=True)
     recorded_episodes = 0
 
     while recorded_episodes < args.num_episodes and not events["stop_recording"]:
+        print("\n" + "█" * 74)
+        print(f"██  ▶  RECORDING episode {recorded_episodes + 1}/{args.num_episodes}"
+              f"      RIGHT ARROW = finish & save   |   ESC = stop")
+        print("█" * 74 + "\n", flush=True)
         log_say(f"Recording episode {recorded_episodes + 1} of {args.num_episodes}")
 
         # === Main record loop ===
@@ -156,19 +178,34 @@ def main():
         if not events["stop_recording"] and (
             (recorded_episodes < args.num_episodes - 1) or events["rerecord_episode"]
         ):
+            print("\n" + "▒" * 74)
+            print(f"▒▒  ⏸  RESET {args.reset_time}s  —  reposition the block"
+                  f"   (runs the FULL time; → will NOT skip it)   |   ← = redo last episode")
+            print("▒" * 74 + "\n", flush=True)
             log_say("Reset the environment")
-            record_loop(
-                robot=robot,
-                events=events,
-                fps=args.fps,
-                teleop=[leader_arm, keyboard],
-                control_time_s=args.reset_time,
-                single_task=args.task_description,
-                display_data=True,
-                teleop_action_processor=teleop_action_processor,
-                robot_action_processor=robot_action_processor,
-                robot_observation_processor=robot_observation_processor,
-            )
+            # Run the reset for its full duration. record_loop() returns early when → is pressed
+            # (it consumes exit_early); we clear the flag and re-enter for the remaining time so a
+            # stray → can't cut the reposition window short. ← (rerecord) or Esc breaks out.
+            events["exit_early"] = False
+            _reset_end = time.perf_counter() + args.reset_time
+            while (
+                time.perf_counter() < _reset_end
+                and not events["stop_recording"]
+                and not events["rerecord_episode"]
+            ):
+                record_loop(
+                    robot=robot,
+                    events=events,
+                    fps=args.fps,
+                    teleop=[leader_arm, keyboard],
+                    control_time_s=_reset_end - time.perf_counter(),
+                    single_task=args.task_description,
+                    display_data=True,
+                    teleop_action_processor=teleop_action_processor,
+                    robot_action_processor=robot_action_processor,
+                    robot_observation_processor=robot_observation_processor,
+                )
+                events["exit_early"] = False
 
         if events["rerecord_episode"]:
             log_say("Re-record episode")
@@ -177,8 +214,10 @@ def main():
             dataset.clear_episode_buffer()
             continue
 
+        print("\n… saving + encoding episode (video-encoder logs below are normal) …", flush=True)
         dataset.save_episode()
         recorded_episodes += 1
+        print(f"\n✔✔✔  SAVED  —  {recorded_episodes}/{args.num_episodes} episodes now in the dataset\n", flush=True)
 
     # === Clean up ===
     log_say("Stop recording")

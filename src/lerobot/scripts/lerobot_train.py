@@ -399,10 +399,29 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
         # same permutation. accelerate then shards it disjointly across ranks via BatchSamplerShard
         # without needing a `generator` attribute to synchronize an RNG, and resume is sample-exact.
         shuffle = False
+        if dataset.episodes is None:
+            sampler_from = dataset.meta.episodes["dataset_from_index"]
+            sampler_to = dataset.meta.episodes["dataset_to_index"]
+            sampler_episodes = None
+        else:
+            # __getitem__ indexes into the episode-filtered dataset (contiguous, reindexed),
+            # while meta.episodes holds GLOBAL frame offsets. With a contiguous episode
+            # prefix the two coincide, but any hole in the list desynchronizes them and the
+            # sampler emits out-of-bounds indices. Rebuild boundaries in filtered space.
+            all_from = dataset.meta.episodes["dataset_from_index"]
+            all_to = dataset.meta.episodes["dataset_to_index"]
+            sampler_from, sampler_to = [], []
+            offset = 0
+            for ep in dataset.episodes:
+                length = int(all_to[ep]) - int(all_from[ep])
+                sampler_from.append(offset)
+                sampler_to.append(offset + length)
+                offset += length
+            sampler_episodes = None  # boundaries already restricted to the selected episodes
         sampler = EpisodeAwareSampler(
-            dataset.meta.episodes["dataset_from_index"],
-            dataset.meta.episodes["dataset_to_index"],
-            episode_indices_to_use=dataset.episodes,
+            sampler_from,
+            sampler_to,
+            episode_indices_to_use=sampler_episodes,
             drop_n_last_frames=getattr(active_cfg, "drop_n_last_frames", 0),
             shuffle=True,
             seed=cfg.seed if cfg.seed is not None else 0,

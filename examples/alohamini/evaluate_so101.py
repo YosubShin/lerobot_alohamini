@@ -1,0 +1,359 @@
+#!/usr/bin/env python3
+"""Drive the remote SO-101 follower with a trained policy (DP/ACT checkpoint).
+
+Built on so101_zmq_client.py (same transport as record_so101.py / replay_so101.py):
+the Pi runs so101_zmq_host.py; observations (joints + jpeg cameras) stream here,
+goal positions stream back.
+
+Matches the training pipeline of so101_red_pick_* datasets:
+  - normalization stats come from --train_dataset_root (NOT recomputed)
+  - policy sees exactly the cameras + state dims the training dataset has
+  - diffusion runs DDIM-10 by default (DDPM-100 is ~10x too slow for 30 fps)
+  - per-tick slew limit defaults to 7 units (kinesthetic demo p99.9 ~ 6.2;
+    teleop-era datasets should pass 4)
+  - before each episode the arm is sent to the median first-frame pose of the
+    training set (in-distribution start), via the host's atomic go_home.
+
+Example:
+  # Pi:  python examples/alohamini/so101_zmq_host.py
+  python examples/alohamini/evaluate_so101.py \
+    --hf_model_id /mnt/nvme/lerobot/outputs/dp_redpick_joint_final_20260729/checkpoints/002000/pretrained_model \
+    --train_dataset_root /mnt/nvme/lerobot/yosubshin/so101_red_pick_clean \
+    --task_description "Put the red block into the bin" \
+    --remote_ip 192.168.0.50 --num_episodes 5 --episode_time 20
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+import sys
+import time
+from pathlib import Path
+
+# Pin inference to the RTX 6000 by default (129 ms/chunk vs 208 ms on the 3090 —
+# more headroom for the async planner). Override with CUDA_VISIBLE_DEVICES if a
+# training job owns it. UUIDs because CUDA/nvidia-smi enumerate GPUs in opposite
+# order on this machine. Must precede any torch import.
+RTX_6000_UUID = "GPU-e93eba70-d129-000d-8077-63d41338f759"
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", RTX_6000_UUID)
+
+import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
+import torch
+
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.policies import get_policy_class, make_pre_post_processors
+from lerobot.policies.utils import populate_queues, prepare_observation_for_inference
+from lerobot.utils.constants import OBS_IMAGES
+from lerobot.utils.robot_utils import precise_sleep
+from lerobot.utils.utils import log_say
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from so101_zmq_client import SO101ZmqClient, SO101ZmqClientConfig  # noqa: E402
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Policy-driven rollout on the remote SO-101")
+    p.add_argument("--hf_model_id", type=str, required=True)
+    p.add_argument("--train_dataset_root", type=str, required=True,
+                   help="Dataset the policy was trained on (stats + feature layout)")
+    p.add_argument("--task_description", type=str, default="pick the red block")
+    p.add_argument("--remote_ip", type=str, required=True)
+    p.add_argument("--zmq_cmd_port", type=int, default=5601)
+    p.add_argument("--zmq_obs_port", type=int, default=5602)
+    p.add_argument("--num_episodes", type=int, default=3)
+    p.add_argument("--episode_time", type=float, default=60.0,
+                   help="Safety cap on rollout duration; normally you stop with ENTER")
+    p.add_argument("--fps", type=int, default=30)
+    # diffusion inference knobs
+    p.add_argument("--scheduler", choices=["ddpm", "ddim"], default="ddim")
+    p.add_argument("--num_inference_steps", type=int, default=10,
+                   help="0 = checkpoint default")
+    p.add_argument("--n_action_steps", type=int, default=16,
+                   help="Actions executed per chunk before replanning (0 = checkpoint default)")
+    # safety / start pose
+    p.add_argument("--max_delta_per_tick", type=float, default=7.0,
+                   help="Per-tick clamp on commanded joint change (0 = off)")
+    p.add_argument("--chunk_trigger", type=int, default=6,
+                   help="Regenerate the next chunk when this many actions remain buffered. "
+                        "Raise to 8-10 when running inference on the slower 3090 at 30 fps "
+                        "(chunk generation there is ~208 ms vs a 6-tick/200 ms deadline).")
+    p.add_argument("--blend_splices", action="store_true",
+                   help="Cross-fade between consecutive action chunks (2-chunk temporal "
+                        "ensemble). Smooths splice jumps at the cost of averaging modes; "
+                        "felt worse at fps 10, untested at fps 30.")
+    p.add_argument("--interp_substeps", type=int, default=1,
+                   help="Stream N interpolated micro-commands per policy tick. At low --fps "
+                        "the raw action staircase makes the servo dash between targets; e.g. "
+                        "--fps 10 --interp_substeps 3 sends smooth 30 Hz ramps instead.")
+    p.add_argument("--no_reset", action="store_true",
+                   help="Skip the go-home between episodes")
+    p.add_argument("--log_dir", type=str, default="/mnt/nvme/lerobot/outputs/so101_rollout_logs",
+                   help="Per-tick trajectory logs (commanded/observed joints) land here")
+    return p.parse_args()
+
+
+class AsyncChunkPlanner:
+    """Zero-stall action streaming for a diffusion policy.
+
+    The synchronous pattern (policy.select_action per tick) freezes the arm for
+    a full chunk-generation pass (~130 ms on the RTX 6000) every n_action_steps
+    ticks — visible stop-and-go at 30 fps. Here the control loop instead:
+      - feeds the policy's observation history every tick (preserving the 33 ms
+        obs spacing the model was trained on),
+      - triggers generation of the NEXT chunk in a worker thread while `trigger`
+        actions still remain in the buffer,
+      - splices the fresh chunk in when the buffer drains, dropping the actions
+        whose timesteps already elapsed while the worker ran.
+    The policy's queues are only touched under a short lock (append / stack);
+    the expensive denoising runs lock-free on a queue snapshot.
+    """
+
+    def __init__(self, policy, postprocessor, device: str, trigger: int = 6,
+                 blend: bool = False):
+        self.policy = policy
+        self.post = postprocessor
+        self.device = device
+        self.trigger = trigger
+        self.blend = blend
+        self.lock = threading.Lock()
+        self.pool = ThreadPoolExecutor(max_workers=1)
+        self.buffer: deque[np.ndarray] = deque()
+        self.future = None
+        self.ticks_since_trigger = 0
+
+    def reset(self) -> None:
+        if self.future is not None:
+            self.future.result()  # let a stale job finish; discard it
+        self.future = None
+        self.buffer.clear()
+        self.policy.reset()
+
+    def _feed_obs(self, batch: dict) -> None:
+        batch = dict(batch)
+        if self.policy.config.image_features:
+            batch[OBS_IMAGES] = torch.stack(
+                [batch[k] for k in self.policy.config.image_features], dim=-4)
+        with self.lock:
+            self.policy._queues = populate_queues(self.policy._queues, batch)
+
+    def _generate(self) -> list[np.ndarray]:
+        with self.lock:  # snapshot obs history (cheap)
+            stacked = {
+                k: torch.stack(list(q), dim=1)
+                for k, q in self.policy._queues.items()
+                if k != "action" and len(q) > 0
+            }
+        with torch.inference_mode():  # expensive denoising — no lock held
+            chunk = self.policy.diffusion.generate_actions(stacked)  # (1, n, dim)
+            out = []
+            for i in range(chunk.shape[1]):
+                out.append(self.post(chunk[:, i]).squeeze(0).cpu().numpy())
+        return out
+
+    def step(self, batch: dict) -> np.ndarray | None:
+        """Feed one observation, return the action for this tick (None = warm-up)."""
+        self._feed_obs(batch)
+        self.ticks_since_trigger += 1
+
+        if self.future is None and len(self.buffer) <= self.trigger:
+            self.ticks_since_trigger = 0
+            self.future = self.pool.submit(self._generate)
+
+        if (not self.buffer) or (self.blend and self.future is not None and self.future.done()):
+            # Splice in the new chunk. Default: execute the old chunk to its
+            # end, then hard-switch (time-aligned by dropping elapsed actions).
+            # With blend=True, switch early and cross-fade old->new over the
+            # overlap instead (tried 2026-07-29; hard splice felt better on
+            # the robot at 10 fps, so blending is opt-in).
+            chunk = self.future.result()  # blocks only if generation outran the buffer
+            self.future = None
+            skip = min(self.ticks_since_trigger, len(chunk) - 1)
+            new = chunk[skip:]
+            if self.blend:
+                old = list(self.buffer)
+                n_blend = min(len(old), len(new) - 1)
+                self.buffer.clear()
+                for i in range(n_blend):
+                    w = (i + 1.0) / (n_blend + 1.0)  # ramp old -> new
+                    self.buffer.append((1.0 - w) * old[i] + w * new[i])
+                self.buffer.extend(new[n_blend:])
+            else:
+                self.buffer.extend(new)
+
+        return self.buffer.popleft()
+
+
+def enter_pressed() -> bool:
+    """Non-blocking check for a completed ENTER on stdin."""
+    import select
+
+    ready, _, _ = select.select([sys.stdin], [], [], 0)
+    if ready:
+        sys.stdin.readline()
+        return True
+    return False
+
+
+def median_first_frame_state(dataset_root: str, state_names: list[str],
+                             val_episodes: set[int]) -> dict[str, float]:
+    """Median first-frame observation.state over TRAIN episodes -> start pose."""
+    import pandas as pd
+
+    files = glob.glob(f"{dataset_root}/data/**/*.parquet", recursive=True)
+    df = pd.concat([pd.read_parquet(f) for f in files])
+    firsts = df[(df["frame_index"] == 0) & (~df["episode_index"].isin(val_episodes))]
+    states = np.stack(firsts["observation.state"].to_numpy()).astype(np.float64)
+    med = np.median(states, axis=0)
+    return {name: float(med[i]) for i, name in enumerate(state_names)}
+
+
+def main() -> None:
+    args = parse_args()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # --- training dataset metadata: stats, state layout, cameras ---
+    root = Path(args.train_dataset_root)
+    meta = LeRobotDatasetMetadata(repo_id=root.name, root=root)
+    state_names = meta.features["observation.state"]["names"]
+    cam_features = sorted(meta.camera_keys)  # e.g. observation.images.forward / .wrist
+    client_cams = [c.removeprefix("observation.images.") for c in cam_features]
+    print(f"Policy inputs: state={state_names}  cameras={client_cams}")
+
+    import json
+    val_file = root / "meta" / "val_episodes.json"
+    val_eps = set(json.loads(val_file.read_text())["val_episodes"]) if val_file.exists() else set()
+
+    # --- policy ---
+    cfg = PreTrainedConfig.from_pretrained(args.hf_model_id)
+    cfg.pretrained_path = args.hf_model_id
+    if cfg.type == "diffusion":
+        cfg.noise_scheduler_type = args.scheduler.upper()
+        if args.num_inference_steps > 0:
+            cfg.num_inference_steps = args.num_inference_steps
+        if args.n_action_steps > 0:
+            cfg.n_action_steps = args.n_action_steps
+        print(f"Diffusion sampler: {cfg.noise_scheduler_type}-{cfg.num_inference_steps}, "
+              f"n_action_steps={cfg.n_action_steps}")
+    policy = get_policy_class(cfg.type).from_pretrained(args.hf_model_id, config=cfg)
+    policy = policy.to(device).eval()
+    preprocessor, postprocessor = make_pre_post_processors(
+        policy_cfg=cfg, pretrained_path=args.hf_model_id, dataset_stats=meta.stats,
+        preprocessor_overrides={"device_processor": {"device": device}},
+    )
+    planner = (AsyncChunkPlanner(policy, postprocessor, device,
+                                 trigger=args.chunk_trigger, blend=args.blend_splices)
+               if cfg.type == "diffusion" else None)
+
+    # --- robot ---
+    hw_shapes = {c: tuple(meta.features[f"observation.images.{c}"]["shape"]) for c in client_cams}
+    robot = SO101ZmqClient(SO101ZmqClientConfig(
+        remote_ip=args.remote_ip, zmq_cmd_port=args.zmq_cmd_port,
+        zmq_obs_port=args.zmq_obs_port,
+        cameras={c: hw_shapes[c] for c in client_cams},
+    ))
+    robot.connect()
+    robot.enable_torque()
+
+    reset_pose = None
+    if not args.no_reset:
+        reset_pose = median_first_frame_state(str(root), state_names, val_eps)
+        print("Reset pose (median train first-frame):",
+              {k: round(v, 1) for k, v in reset_pose.items()})
+
+    def policy_obs() -> tuple[dict, dict[str, float]]:
+        raw = robot.get_observation()
+        obs = {"observation.state": np.array([raw[n] for n in state_names], dtype=np.float32)}
+        for c in client_cams:
+            obs[f"observation.images.{c}"] = np.ascontiguousarray(raw[c])
+        joints = {n: float(raw[n]) for n in state_names}
+        return obs, joints
+
+    interval = 1.0 / args.fps
+    try:
+        for ep in range(args.num_episodes):
+            if reset_pose is not None:
+                log_say("Going to start pose")
+                robot.go_home(reset_pose)
+            input(f"\nReset the scene, then press ENTER to start episode {ep + 1} "
+                  f"of {args.num_episodes}…")
+            log_say(f"Episode {ep + 1}")
+            print("Rolling out — press ENTER to stop this episode.")
+            if planner is not None:
+                planner.reset()
+            else:
+                policy.reset()
+            preprocessor.reset()
+            postprocessor.reset()
+            _, last_sent = policy_obs()  # seed limiter from the actual pose
+
+            rows = []
+            ep_start = time.perf_counter()
+            t_end = ep_start + args.episode_time
+            while time.perf_counter() < t_end:
+                if enter_pressed():
+                    print("Stopped by user.")
+                    break
+                t0 = time.perf_counter()
+                obs, joints = policy_obs()
+                with torch.inference_mode():
+                    o = prepare_observation_for_inference(
+                        obs, torch.device(device), args.task_description, robot.name)
+                    o = preprocessor(o)
+                if planner is not None:
+                    raw = planner.step(o)
+                    buf_len = len(planner.buffer)
+                else:
+                    with torch.inference_mode():
+                        raw = postprocessor(policy.select_action(o)).squeeze(0).cpu().numpy()
+                    buf_len = -1
+                prev = dict(last_sent)
+                cmd = {n: float(raw[i]) for i, n in enumerate(state_names)}
+                if args.max_delta_per_tick > 0:
+                    d = args.max_delta_per_tick
+                    for n in state_names:
+                        cmd[n] = min(max(cmd[n], last_sent[n] - d), last_sent[n] + d)
+                        last_sent[n] = cmd[n]
+                if args.interp_substeps > 1:
+                    S = args.interp_substeps
+                    for s in range(1, S + 1):
+                        w = s / S
+                        robot.send_action({n: prev[n] + w * (cmd[n] - prev[n])
+                                           for n in state_names})
+                        if s < S:
+                            precise_sleep(interval / S)
+                    # outer precise_sleep covers the final sub-interval
+                else:
+                    robot.send_action(cmd)
+                rows.append([time.perf_counter() - ep_start, buf_len]
+                            + [joints[n] for n in state_names]          # observed
+                            + [float(raw[i]) for i in range(len(state_names))]  # policy raw
+                            + [cmd[n] for n in state_names])            # sent (post-limiter)
+                precise_sleep(max(interval - (time.perf_counter() - t0), 0.0))
+            else:
+                print(f"Episode hit the {args.episode_time:.0f}s safety cap.")
+            log_dir = Path(args.log_dir); log_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            out = log_dir / f"rollout_{stamp}_ep{ep}.npz"
+            np.savez_compressed(out, rows=np.array(rows, dtype=np.float32),
+                                columns=np.array(["t", "buffer_len"]
+                                                 + [f"obs.{n}" for n in state_names]
+                                                 + [f"raw.{n}" for n in state_names]
+                                                 + [f"cmd.{n}" for n in state_names]))
+            print(f"Trajectory log: {out} ({len(rows)} ticks)")
+            log_say("Episode done")
+        if reset_pose is not None:
+            robot.go_home(reset_pose)  # leave the arm parked at the start pose
+            time.sleep(1.0)
+    finally:
+        robot.disconnect()
+        print("Rollout session finished.")
+
+
+if __name__ == "__main__":
+    main()

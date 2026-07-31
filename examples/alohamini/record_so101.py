@@ -286,17 +286,41 @@ def _read_joint_pose(robot) -> dict[str, float]:
     return {k: float(v) for k, v in obs.items() if isinstance(k, str) and k.endswith(".pos")}
 
 
-def _go_home(robot, home: dict[str, float], settle_s: float = 1.5) -> None:
-    """Enable torque, drive to home, wait, then disable torque for the next kinesthetic episode."""
-    print(f"Returning to home pose (settle {settle_s:g}s)…", flush=True)
-    print("  target:", {k: round(v, 2) for k, v in home.items()}, flush=True)
+def _ramp_to_pose(robot, target: dict[str, float], seconds: float) -> None:
+    """Move to `target` along a smooth interpolated path instead of letting the
+    servos snap there at full speed (mirrors evaluate_so101's ramp_to_pose).
 
+    Torque is latched at the CURRENT pose first (zero motion), then goals step
+    toward the target at 30 Hz.
+    """
+    cur = {}
+    for _ in range(5):
+        cur = _read_joint_pose(robot)
+        if cur:
+            break
+        time.sleep(0.1)
+    joints = [k for k in target if k in cur]
+    if not joints:
+        raise RuntimeError("Could not read joint pose for ramped homing.")
     if hasattr(robot, "go_home"):
-        robot.go_home(home)
+        robot.go_home({k: cur[k] for k in joints})  # atomic enable + hold current pose
     else:
         _enable_torque(robot)
         time.sleep(0.2)
-        robot.send_action(home)
+        robot.send_action({k: cur[k] for k in joints})
+    n = max(1, int(seconds * 30))
+    for i in range(1, n + 1):
+        w = i / n
+        robot.send_action({k: cur[k] + w * (target[k] - cur[k]) for k in joints})
+        precise_sleep(1.0 / 30)
+
+
+def _go_home(robot, home: dict[str, float], settle_s: float = 1.5, ramp_s: float = 3.0) -> None:
+    """Ramp to home, wait, then disable torque for the next kinesthetic episode."""
+    print(f"Returning to home pose (ramp {ramp_s:g}s, settle {settle_s:g}s)…", flush=True)
+    print("  target:", {k: round(v, 2) for k, v in home.items()}, flush=True)
+
+    _ramp_to_pose(robot, home, ramp_s)
 
     # Keep refreshing the goal while settling; also useful for direct-USB mode.
     t_end = time.perf_counter() + max(settle_s, 0.5)
@@ -375,6 +399,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.5,
         help="Seconds to hold home pose after each episode before the next record",
+    )
+    parser.add_argument(
+        "--home_ramp_s",
+        type=float,
+        default=3.0,
+        help="Seconds to ramp (interpolate) back to home instead of a full-speed jump",
     )
     parser.add_argument(
         "--home_pose",
@@ -578,7 +608,7 @@ def main() -> None:
     print("  home:", {k: round(v, 2) for k, v in home.items()})
 
     print("\nMoving to home pose at startup…")
-    _go_home(robot, home, settle_s=args.home_settle_s)
+    _go_home(robot, home, settle_s=args.home_settle_s, ramp_s=args.home_ramp_s)
 
     listener, events = init_keyboard_listener()
     kb = FocusKeyboard()
@@ -656,7 +686,7 @@ def main() -> None:
                 events["exit_early"] = False
                 dataset.clear_episode_buffer()
                 print("Episode discarded (not saved). Returning home…")
-                _go_home(robot, home, settle_s=args.home_settle_s)
+                _go_home(robot, home, settle_s=args.home_settle_s, ramp_s=args.home_ramp_s)
                 if not _wait_for_next_episode(kb, events, robot):
                     break
                 continue
@@ -678,7 +708,7 @@ def main() -> None:
 
             more_to_go = recorded_episodes < args.num_episodes and not events["stop_recording"]
             if more_to_go:
-                _go_home(robot, home, settle_s=args.home_settle_s)
+                _go_home(robot, home, settle_s=args.home_settle_s, ramp_s=args.home_ramp_s)
                 if not _wait_for_next_episode(kb, events, robot):
                     break
     finally:

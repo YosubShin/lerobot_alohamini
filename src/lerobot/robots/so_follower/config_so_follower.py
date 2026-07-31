@@ -45,6 +45,17 @@ class SOFollowerConfig:
     #   am-follower-6dof-hd – AM-ARM200 Pro follower
     arm_profile: str = "so-arm-5dof"
 
+    # Feetech position-loop gains, written to every motor on connect().
+    # p_coefficient defaults to 16 — half the servo default of 32 — which was
+    # chosen to damp shakiness. That softness costs tracking: an open-loop replay
+    # of a kinesthetic episode measured 167 ms of following error (8.1 units
+    # median), concentrated in the gravity-loaded shoulder_lift and elbow_flex,
+    # and scaling with commanded speed (r=0.85). Raise toward 32 to trade lag
+    # back for stiffness; watch p95/max error for returning oscillation.
+    p_coefficient: int = 16
+    i_coefficient: int = 0
+    d_coefficient: int = 32
+
 
 
 @RobotConfig.register_subclass("so101_follower")

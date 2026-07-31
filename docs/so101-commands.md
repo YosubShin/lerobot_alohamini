@@ -101,10 +101,25 @@ Every episode logs per-tick cmd/obs/raw npz + per-camera mp4 to
 `/mnt/nvme/lerobot/outputs/so101_rollout_logs/`. Episodes are ENTER-gated;
 ENTER stops an episode; Ctrl-C freezes the arm in place (torque held).
 
-## 5. Fisheye wrist camera (H264-only) — inspection
+## 5. Fisheye wrist camera
 
-The Low Light fisheye board outputs **H264 only, max 1080p30** (no MJPG, no
-60 fps — verified). Capture a clip for inspection without touching the host:
+The Low Light fisheye is a multi-interface UVC camera: an H264 node
+(`/dev/am_camera_fisheye`) and an MJPG/YUYV node — both max **1080p30**
+(no 60 fps on any interface; verified). Integrated into the host via
+`--wrist_h264`: one ffmpeg process tees the camera's own H264 into a
+timestamped `~/fisheye_archive/*.mkv` (full-res, SLAM-ready, ~9 Mbps ≈ 6 GB
+per 1.5 h) and pipes decoded 320x240 frames into the normal live stream —
+client/recorder unchanged. Start the host with:
+
+```bash
+python examples/alohamini/so101_zmq_host.py \
+    --p_coefficient 32 --i_coefficient 4 --d_coefficient 32 \
+    --forward_cam /dev/am_camera_forward --wrist_h264
+```
+
+Cameras are udev-named by model (`am_camera_forward` = HDR,
+`am_camera_fisheye` = Low Light), robust to port changes. Standalone
+inspection clip without the host:
 
 ```bash
 # on the Pi: 30 s @ 1080p30 straight to file (hardware-encoded, ~9.4 Mbps)

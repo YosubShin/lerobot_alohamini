@@ -133,9 +133,6 @@ scp yosub@192.168.0.50:/tmp/fisheye_test.h264 /tmp/ && \
 ffmpeg -y -framerate 30 -i /tmp/fisheye_test.h264 -c copy /tmp/fisheye_test.mp4
 ```
 
-Live-pipeline integration (reliable H264 channel + workstation decode) is
-pending; the conflating MJPG path cannot carry H264 (inter-frame deps).
-
 ## 6. Training (on the training box)
 
 ```bash

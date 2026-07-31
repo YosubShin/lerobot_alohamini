@@ -41,6 +41,19 @@ a conflated client at 15 Hz would otherwise silently duplicate frames). On
 failure it prints a loud banner and aborts, discarding the in-progress
 episode. Usual cause: a second client on the obs socket (see §1).
 
+### Teleop variant (leader arm on the workstation)
+
+```bash
+python examples/alohamini/record_so101_teleop.py \
+    --dataset local/<dataset_name> --num_episodes 100 --fps 30
+```
+
+Same guards/controls/sidecar/1080p flow as the kinesthetic recorder, but
+**action = leader pose** (natural plant lead — no k-shift at training time).
+The follower ramps to the leader's pose at start and follows continuously,
+including between episodes; only in-episode ticks are recorded. Leader
+defaults: `/dev/am_arm_leader_right`, profile `so-arm-5dof`.
+
 Protocol (see the experiments log, "Data collection protocol v2"): pilot 5
 episodes first; start recording after gripping the arm and stop at release;
 grid placements and alternate sides; keep motion ≥ ~1°/tick (final 5 cm in

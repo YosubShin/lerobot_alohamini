@@ -57,8 +57,11 @@ class H264FisheyeCamera:
     """
 
     def __init__(self, device: str, out_w: int, out_h: int, archive_dir: str,
-                 ffmpeg: str = "ffmpeg", fps: int = 30):
+                 ffmpeg: str = "ffmpeg", fps: int = 30, codec: str = "mjpeg"):
+        # codec: "mjpeg" (video1 node, ~43 Mbps, 4x sharper — better SLAM source)
+        #        or "h264" (video4 node, fixed ~9.4 Mbps, smaller archives)
         self.device, self.out_w, self.out_h, self.fps = device, out_w, out_h, fps
+        self.codec = codec
         self.archive_dir = Path(archive_dir).expanduser()
         self.ffmpeg = ffmpeg
         self.proc: subprocess.Popen | None = None
@@ -71,7 +74,7 @@ class H264FisheyeCamera:
         self.archive_dir.mkdir(parents=True, exist_ok=True)
         self.archive_path = self.archive_dir / time.strftime("fisheye_%Y%m%d_%H%M%S.mkv")
         cmd = [self.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
-               "-f", "v4l2", "-input_format", "h264", "-framerate", str(self.fps),
+               "-f", "v4l2", "-input_format", self.codec, "-framerate", str(self.fps),
                "-video_size", "1920x1080", "-i", self.device,
                "-map", "0:v", "-c", "copy", "-f", "matroska", str(self.archive_path),
                "-map", "0:v", "-vf", f"scale={self.out_w}:{self.out_h}",
@@ -115,6 +118,24 @@ class H264FisheyeCamera:
                      self.archive_path, self.frames_read)
 
 
+def _find_fisheye_node(codec: str) -> str | None:
+    """The Low Light fisheye exposes MJPG and H264 on different /dev/video
+    nodes with identical udev attributes — pick the node by probing formats."""
+    want = "MJPG" if codec == "mjpeg" else "H264"
+    for name_file in sorted(Path("/sys/class/video4linux").glob("video*/name")):
+        if not name_file.read_text().startswith("Arducam 1080P Low Light"):
+            continue
+        dev = f"/dev/{name_file.parent.name}"
+        try:
+            out = subprocess.run(["v4l2-ctl", "-d", dev, "--list-formats"],
+                                 capture_output=True, text=True, timeout=5).stdout
+        except Exception:
+            continue
+        if want in out:
+            return dev
+    return None
+
+
 def _resolve(path: str, fallback: str | None = None) -> str:
     if Path(path).exists():
         return path
@@ -156,6 +177,10 @@ def parse_args() -> argparse.Namespace:
                         "full-res 1080p30 H264 into --wrist_archive_dir (SLAM record) "
                         "and feeds downscaled live frames into the normal stream")
     p.add_argument("--wrist_h264_dev", default="/dev/am_camera_fisheye")
+    p.add_argument("--wrist_codec", choices=["mjpeg", "h264"], default="mjpeg",
+                   help="Fisheye interface/archive codec. mjpeg (~43 Mbps) is ~4x sharper "
+                        "on this camera and the better SLAM source; h264 (~9.4 Mbps) for "
+                        "small archives. The two live on different /dev nodes.")
     p.add_argument("--wrist_archive_dir", default="~/fisheye_archive")
     p.add_argument(
         "--duration_s",
@@ -189,9 +214,10 @@ def main() -> None:
     fisheye: H264FisheyeCamera | None = None
     if args.wrist_h264 and not args.no_cameras:
         ff = shutil.which("ffmpeg") or str(Path.home() / "miniforge3/envs/lerobot_alohamini/bin/ffmpeg")
-        fisheye = H264FisheyeCamera(_resolve(args.wrist_h264_dev, "/dev/video4"),
-                                    args.cam_width, args.cam_height,
-                                    args.wrist_archive_dir, ffmpeg=ff, fps=args.fps)
+        dev = _find_fisheye_node(args.wrist_codec) or _resolve(args.wrist_h264_dev, "/dev/video4")
+        fisheye = H264FisheyeCamera(dev, args.cam_width, args.cam_height,
+                                    args.wrist_archive_dir, ffmpeg=ff, fps=args.fps,
+                                    codec=args.wrist_codec)
 
     robot = SO101Follower(
         SO101FollowerConfig(

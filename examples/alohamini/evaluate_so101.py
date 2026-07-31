@@ -80,6 +80,14 @@ def parse_args() -> argparse.Namespace:
     # safety / start pose
     p.add_argument("--max_delta_per_tick", type=float, default=7.0,
                    help="Per-tick clamp on commanded joint change (0 = off)")
+    p.add_argument("--gripper_max_delta", type=float, default=20.0,
+                   help="Separate (looser) per-tick clamp for the gripper — the arm "
+                        "limiter was silently halving close speed at fps15, giving a "
+                        "slippery block time to squirt out (0 = no gripper clamp)")
+    p.add_argument("--gripper_close_bias", type=float, default=0.0,
+                   help="Extra closure subtracted from gripper commands below 70 "
+                        "(kinesthetic models command ~block width with zero squeeze "
+                        "margin — action==state has no force signal; try 10-15)")
     p.add_argument("--action_ema", type=float, default=0.0,
                    help="Low-pass the executed action stream: cmd = a*new + (1-a)*prev. "
                         "DP's chunks carry a ~0.6 unit/tick noise floor regardless of "
@@ -417,9 +425,12 @@ def main() -> None:
                 if args.action_ema > 0:
                     a = args.action_ema
                     cmd = {n: a * cmd[n] + (1 - a) * prev[n] for n in state_names}
+                if args.gripper_close_bias > 0 and cmd["gripper.pos"] < 70:
+                    cmd["gripper.pos"] = max(cmd["gripper.pos"] - args.gripper_close_bias, 0.0)
                 if args.max_delta_per_tick > 0:
-                    d = args.max_delta_per_tick
                     for n in state_names:
+                        d = (args.gripper_max_delta or float("inf")) if n == "gripper.pos" \
+                            else args.max_delta_per_tick
                         cmd[n] = min(max(cmd[n], last_sent[n] - d), last_sent[n] + d)
                         last_sent[n] = cmd[n]
                 if args.interp_substeps > 1:

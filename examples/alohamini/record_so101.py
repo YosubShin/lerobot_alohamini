@@ -610,8 +610,9 @@ def kinesthetic_record_loop(
         stuck = [c for c, n in frozen_run.items() if n >= frozen_limit]
         if stuck:
             print(_frozen_cam_banner(stuck), flush=True)
-            events["stop_recording"] = True
-            events["slow_obs_abort"] = True
+            print("Episode discarded — will wait for recovery and let you redo it.", flush=True)
+            events["rerecord_episode"] = True
+            events["glitch_abort"] = True
             break
 
         if dataset is not None:
@@ -631,8 +632,9 @@ def kinesthetic_record_loop(
                 print(_obs_rate_banner(min(loop_hz, obs_hz), fps * _MIN_OBS_RATE_FRACTION), flush=True)
                 print(f"!!  (loop {loop_hz:.1f} Hz, host stream {obs_hz:.1f} Hz — "
                       f"if only the stream is slow, suspect WiFi or a second client)", flush=True)
-                events["stop_recording"] = True
-                events["slow_obs_abort"] = True
+                print("Episode discarded — will wait for recovery and let you redo it.", flush=True)
+                events["rerecord_episode"] = True
+                events["glitch_abort"] = True
                 break
         if frame_i % 10 == 0:
             elapsed = time.perf_counter() - start_episode_t
@@ -816,6 +818,19 @@ def main() -> None:
                 dataset.clear_episode_buffer()
                 print("Episode discarded (not saved). Returning home…")
                 _go_home(robot, home, settle_s=args.home_settle_s, ramp_s=args.home_ramp_s)
+                # After a glitch abort (frozen camera / slow stream): block until
+                # the stream is verifiably healthy again before offering a redo.
+                if events.pop("glitch_abort", False) and args.remote_ip:
+                    print("Waiting for the stream to recover…", flush=True)
+                    while True:
+                        hz, frozen = _measure_obs_rate(robot, seconds=2.0)
+                        ok_hz = hz is None or hz >= args.fps * _MIN_OBS_RATE_FRACTION
+                        if ok_hz and not frozen:
+                            print(f"Recovered: {hz:.1f} Hz, cameras live.", flush=True)
+                            break
+                        print(f"  not yet (rate={hz and f'{hz:.1f}'} Hz, "
+                              f"frozen={frozen or 'none'}) — retrying in 3 s", flush=True)
+                        time.sleep(3)
                 if not _wait_for_next_episode(kb, events, robot):
                     break
                 continue

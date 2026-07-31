@@ -523,13 +523,16 @@ def kinesthetic_record_loop(
             obs_hz = loop_hz if msgs0 is None else (robot.msgs_received - msgs0) / elapsed
             if min(loop_hz, obs_hz) < fps * _MIN_OBS_RATE_FRACTION:
                 print(_obs_rate_banner(min(loop_hz, obs_hz), fps * _MIN_OBS_RATE_FRACTION), flush=True)
+                print(f"!!  (loop {loop_hz:.1f} Hz, host stream {obs_hz:.1f} Hz — "
+                      f"if only the stream is slow, suspect WiFi or a second client)", flush=True)
                 events["stop_recording"] = True
                 events["slow_obs_abort"] = True
                 break
         if frame_i % 10 == 0:
             elapsed = time.perf_counter() - start_episode_t
+            obs_hz = "" if msgs0 is None else f"  obs={(robot.msgs_received - msgs0) / elapsed:4.1f}Hz"
             print(
-                f"\r  recorded frames={frame_i}  t={elapsed:5.1f}s/{control_time_s:.0f}s   ",
+                f"\r  recorded frames={frame_i}  t={elapsed:5.1f}s/{control_time_s:.0f}s{obs_hz}   ",
                 end="",
                 flush=True,
             )

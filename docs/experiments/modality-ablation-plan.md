@@ -22,10 +22,10 @@ and what failure quirks does each carry?
 - **Same placement grid** for all modalities: alternating sides, right-heavy
   to counter the historical left bias, ~20% recovery demos, no dwell,
   always finish the place, gripper transitions ≥ 0.5 s full travel.
-- **Primary comparison is wrist-only** (fisheye) for all three arms — UMI
-  cannot have a base cam, so the others must match. Secondary arm:
-  kinesthetic + teleop retrained with wrist+base to price the base camera
-  separately (known to matter from the 2026-07-29 ablation).
+- **Primary comparison is wrist-only** (fisheye): UMI vs kinesthetic both
+  trained wrist-only. Secondary arm: kinesthetic ± base cam (same episodes,
+  two trainings) to price the base camera separately (known to matter from
+  the 2026-07-29 ablation). Decided 2026-07-31.
 - **Action-space caveat:** UMI differs in both modality and action space
   (EE vs joints). Decide before training: external IK at deploy, or
   gripper-state → joint-action (am1_red_bin recipe). Either way the UMI

@@ -500,6 +500,26 @@ def _joint_action_from_obs(obs: dict) -> dict[str, float]:
     return {k: float(v) for k, v in obs.items() if isinstance(k, str) and k.endswith(".pos")}
 
 
+def _log_episode_wallclock(dataset, start_unix: float, end_unix: float) -> None:
+    """Append this episode's wall-clock window to meta/episode_wallclock.jsonl.
+
+    The dataset itself only stores relative timestamps — without this sidecar
+    there is no way to map an episode to the host's 1080p fisheye archive
+    segments (fisheye_<UTC>Z_%04d.mkv)."""
+    idx = dataset.meta.total_episodes - 1
+    path = Path(dataset.root) / "meta" / "episode_wallclock.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "episode_index": idx,
+        "start_unix": round(start_unix, 3),
+        "end_unix": round(end_unix, 3),
+        "start_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_unix)),
+        "end_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(end_unix)),
+    }
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def kinesthetic_record_loop(
     *,
     robot,
@@ -712,6 +732,7 @@ def main() -> None:
             time.sleep(0.2)
             kb.clear()
 
+            ep_start_unix = time.time()
             kinesthetic_record_loop(
                 robot=robot,
                 events=events,
@@ -722,6 +743,7 @@ def main() -> None:
                 display_data=args.rerun,
                 kb=kb,
             )
+            ep_end_unix = time.time()
 
             # Quit mid-episode: drop the buffer, do not save.
             if events["stop_recording"]:
@@ -753,6 +775,7 @@ def main() -> None:
 
             print("\n… saving + encoding episode (video-encoder logs below are normal) …", flush=True)
             dataset.save_episode()
+            _log_episode_wallclock(dataset, ep_start_unix, ep_end_unix)
             recorded_episodes += 1
             print(
                 f"\n✔✔✔  SAVED  —  {recorded_episodes}/{args.num_episodes} episodes now in the dataset\n",

@@ -88,7 +88,9 @@ class H264FisheyeCamera:
                "-video_size", "1920x1080", "-i", self.device]
         free = self._free_gb()
         if free >= self.MIN_FREE_GB:
-            base = time.strftime("fisheye_%Y%m%d_%H%M%S")
+            # UTC + Z suffix: local-time names once cost a day of forensics
+            # (Pi on BST, workstation on PDT).
+            base = time.strftime("fisheye_%Y%m%dT%H%M%SZ", time.gmtime())
             self.archive_path = self.archive_dir / f"{base}_%04d.mkv"
             cmd += ["-map", "0:v", "-c", "copy", "-f", "segment",
                     "-segment_time", str(self.SEGMENT_S), "-segment_format", "matroska",

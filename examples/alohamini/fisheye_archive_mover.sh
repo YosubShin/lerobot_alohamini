@@ -6,7 +6,7 @@
 #
 #   ./fisheye_archive_mover.sh [user@pi] [dest_dir]
 set -euo pipefail
-PI=${1:-yosub@192.168.0.50}
+PI=${1:-yosub@192.168.0.17}
 DEST=${2:-/mnt/nvme/lerobot/fisheye_archive}
 mkdir -p "$DEST"
 echo "Moving completed segments from $PI:~/fisheye_archive to $DEST (Ctrl-C to stop)"

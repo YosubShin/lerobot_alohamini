@@ -4,7 +4,7 @@ Working commands for the SO-101 single-arm setup (Pi host + workstation).
 Context and why these flags exist: `docs/experiments/so101-kinesthetic-experiments-2026-07-30.md`.
 
 Conventions: workstation paths below use `/mnt/nvme/lerobot/...`; the Pi is
-`yosub@192.168.0.50`; all workstation commands run from the repo root with the
+`yosub@192.168.0.17` (ethernet; wlan fallback `.50`); all workstation commands run from the repo root with the
 `lerobot_alohamini` conda env active.
 
 ## 1. Robot host (on the Pi)

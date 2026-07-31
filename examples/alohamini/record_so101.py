@@ -62,7 +62,7 @@ _DEFAULT_ROBOT_ID = "am_follower_right"
 _DEFAULT_FORWARD_CAM = "/dev/am_camera_wrist_right"
 _DEFAULT_WRIST_CAM = "/dev/am_camera_forward"
 _DEFAULT_WRIST_FALLBACK = "/dev/video0"
-_DEFAULT_REMOTE_IP = "192.168.0.50"
+_DEFAULT_REMOTE_IP = "192.168.0.17"  # Pi ethernet (wlan fallback: .50)
 _HOME_POSE_PATH = Path(__file__).resolve().parent / "so101_home_pose.json"
 
 # Reject recording when the observation stream runs below this fraction of --fps.

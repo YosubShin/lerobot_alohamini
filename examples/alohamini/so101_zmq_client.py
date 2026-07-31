@@ -60,6 +60,11 @@ class SO101ZmqClient:
         self._is_connected = False
         self.last_frames: dict[str, np.ndarray] = {}
         self.last_joints: dict[str, float] = dict.fromkeys(config.joint_names, 0.0)
+        # Count of genuinely fresh messages off the wire. get_observation()
+        # silently serves the cache on a miss, so this is the only way to tell a
+        # healthy 30 Hz stream from one whose frames are being taken by another
+        # consumer — and unlike a second socket, counting does not itself steal.
+        self.msgs_received = 0
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
@@ -157,6 +162,7 @@ class SO101ZmqClient:
         while True:
             try:
                 last = self.zmq_observation_socket.recv_string(zmq.NOBLOCK)
+                self.msgs_received += 1
             except zmq.Again:
                 break
         if last is None:

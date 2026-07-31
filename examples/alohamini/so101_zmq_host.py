@@ -28,7 +28,7 @@ from lerobot.cameras.configs import Cv2Rotation
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
+logging.basicConfig(force=True, level=logging.INFO, format="[%(asctime)s] %(message)s")
 
 _DEFAULT_PORT = "/dev/am_arm_follower_right"
 _DEFAULT_ROBOT_ID = "am_follower_right"

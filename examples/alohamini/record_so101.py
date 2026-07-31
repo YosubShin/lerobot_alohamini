@@ -65,6 +65,38 @@ _DEFAULT_WRIST_FALLBACK = "/dev/video0"
 _DEFAULT_REMOTE_IP = "192.168.0.50"
 _HOME_POSE_PATH = Path(__file__).resolve().parent / "so101_home_pose.json"
 
+# Reject recording when the observation stream runs below this fraction of --fps.
+# The classic cause is a second client connected to the host's PUSH socket
+# (round-robin halves the rate to ~15 Hz) — recorded data would be silently
+# duplicated frames, poisoning the dataset.
+_MIN_OBS_RATE_FRACTION = 0.93
+
+
+def _measure_obs_rate(robot, seconds: float = 3.0) -> float | None:
+    """Remote mode: true host observation rate via the client's msgs_received counter."""
+    if not hasattr(robot, "msgs_received"):
+        return None
+    robot.get_observation()  # warm the stream
+    m0 = robot.msgs_received
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < seconds:
+        robot.get_observation()
+        time.sleep(0.004)
+    return (robot.msgs_received - m0) / (time.perf_counter() - t0)
+
+
+def _obs_rate_banner(measured_hz: float, needed_hz: float) -> str:
+    return (
+        "\n" + "!" * 74 + "\n"
+        f"!!  OBSERVATION STREAM TOO SLOW: {measured_hz:.1f} Hz (need >= {needed_hz:.1f} Hz)\n"
+        "!!  Recording at this rate would silently duplicate frames.\n"
+        "!!  Most likely cause: ANOTHER CLIENT is connected to the host's obs\n"
+        "!!  socket (PUSH round-robins -> each client gets half). Close any other\n"
+        "!!  recorder / focus meter / eval / replay tool, then rerun.\n"
+        "!!  Check on the Pi:  ss -tn state established '( sport = :5602 )'\n"
+        + "!" * 74
+    )
+
 
 class FocusKeyboard:
     """Terminal-focus stdin keys — works over SSH where pynput arrow keys often don't."""
@@ -429,6 +461,8 @@ def kinesthetic_record_loop(
     control_interval = 1.0 / fps
     start_episode_t = time.perf_counter()
     frame_i = 0
+    rate_check_every = max(int(fps * 3), 1)
+    msgs0 = getattr(robot, "msgs_received", None)
 
     while (time.perf_counter() - start_episode_t) < control_time_s:
         if kb is not None:
@@ -453,6 +487,15 @@ def kinesthetic_record_loop(
             log_rerun_data(observation=obs, action=action)
 
         frame_i += 1
+        if frame_i % rate_check_every == 0:
+            elapsed = time.perf_counter() - start_episode_t
+            loop_hz = frame_i / elapsed
+            obs_hz = loop_hz if msgs0 is None else (robot.msgs_received - msgs0) / elapsed
+            if min(loop_hz, obs_hz) < fps * _MIN_OBS_RATE_FRACTION:
+                print(_obs_rate_banner(min(loop_hz, obs_hz), fps * _MIN_OBS_RATE_FRACTION), flush=True)
+                events["stop_recording"] = True
+                events["slow_obs_abort"] = True
+                break
         if frame_i % 10 == 0:
             elapsed = time.perf_counter() - start_episode_t
             print(
@@ -500,6 +543,21 @@ def main() -> None:
         print("Mode: DIRECT USB (dataset writes on this machine — usually the Pi)")
 
     robot.connect()
+
+    # Pre-flight: refuse to record on a degraded observation stream.
+    if args.remote_ip:
+        print("Pre-flight: measuring host observation rate (3 s)…", flush=True)
+        obs_hz = _measure_obs_rate(robot)
+        needed_hz = args.fps * _MIN_OBS_RATE_FRACTION
+        if obs_hz is not None and obs_hz < needed_hz:
+            print(_obs_rate_banner(obs_hz, needed_hz), flush=True)
+            try:
+                robot.disconnect()
+            except Exception:
+                pass
+            raise SystemExit(1)
+        if obs_hz is not None:
+            print(f"Observation rate OK: {obs_hz:.1f} Hz (need >= {needed_hz:.1f})", flush=True)
 
     # Latch home: prefer saved JSON unless --relatch_home, else capture current pose.
     home_path = Path(args.home_pose)
@@ -585,7 +643,10 @@ def main() -> None:
             # Quit mid-episode: drop the buffer, do not save.
             if events["stop_recording"]:
                 dataset.clear_episode_buffer()
-                print("Quit — in-progress episode discarded (not saved).")
+                if events.get("slow_obs_abort"):
+                    print("ABORTED — observation stream degraded; episode discarded (not saved).")
+                else:
+                    print("Quit — in-progress episode discarded (not saved).")
                 break
 
             # Discard + redo: clear buffer, home, wait for Enter, then loop.

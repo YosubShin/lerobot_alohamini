@@ -21,7 +21,9 @@ python examples/alohamini/so101_zmq_host.py \
 - The `gains: P=.. I=.. D=..` line in the log confirms what is live.
 - The host publishes observations on a PUSH socket: **only one client at a
   time** gets the full stream — never leave a second client connected while
-  another tool runs.
+  another tool runs. Beware: a killed client's connection can linger on the
+  Pi for a few seconds and still steal frames; check with
+  `ss -tn state established '( sport = :5602 )'` on the Pi.
 
 ## 2. Kinesthetic data collection
 
@@ -31,6 +33,13 @@ python examples/alohamini/record_so101.py \
     --dataset local/<dataset_name> --num_episodes 100 \
     --remote_ip 192.168.0.50 --fps 30
 ```
+
+The recorder **refuses to record on a slow observation stream**: a 3 s
+pre-flight after connect plus a continuous in-episode check both require
+≥ 93% of `--fps` true host messages (`msgs_received`, not loop iterations —
+a conflated client at 15 Hz would otherwise silently duplicate frames). On
+failure it prints a loud banner and aborts, discarding the in-progress
+episode. Usual cause: a second client on the obs socket (see §1).
 
 Protocol (see the experiments log, "Data collection protocol v2"): pilot 5
 episodes first; start recording after gripping the arm and stop at release;

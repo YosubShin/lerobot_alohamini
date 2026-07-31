@@ -84,6 +84,16 @@ def parse_args() -> argparse.Namespace:
                    help="Separate (looser) per-tick clamp for the gripper — the arm "
                         "limiter was silently halving close speed at fps15, giving a "
                         "slippery block time to squirt out (0 = no gripper clamp)")
+    p.add_argument("--gripper_binarize", action="store_true",
+                   help="Snap gripper commands to fully-open (100) or committed-close "
+                        "(--gripper_closed_cmd) with hysteresis (<60 closes, >75 opens). "
+                        "Kills the mode-averaged 60-70 hover — the policy outputs the "
+                        "average of open and close modes, which is simultaneously too "
+                        "closed to descend cleanly and proprioceptively identical to "
+                        "'holding the block' (drives descend-lift oscillation).")
+    p.add_argument("--gripper_closed_cmd", type=float, default=30.0,
+                   help="Close-state command when --gripper_binarize is on (teleop data "
+                        "median close is ~30)")
     p.add_argument("--gripper_close_bias", type=float, default=0.0,
                    help="Extra closure subtracted from gripper commands below 45 (committed closes only — "
                         "biasing mid-range hover commands parks the gripper in the holding-ambiguity zone "
@@ -393,6 +403,7 @@ def main() -> None:
             preprocessor.reset()
             postprocessor.reset()
             _, last_sent = policy_obs()  # seed limiter from the actual pose
+            gr_closed = False  # binarize hysteresis state, reset per episode
 
             rows = []
             video_writers: dict = {}
@@ -425,7 +436,14 @@ def main() -> None:
                 if args.action_ema > 0:
                     a = args.action_ema
                     cmd = {n: a * cmd[n] + (1 - a) * prev[n] for n in state_names}
-                if args.gripper_close_bias > 0 and cmd["gripper.pos"] < 45:
+                if args.gripper_binarize:
+                    g = cmd["gripper.pos"]
+                    if gr_closed and g > 75:
+                        gr_closed = False
+                    elif not gr_closed and g < 60:
+                        gr_closed = True
+                    cmd["gripper.pos"] = args.gripper_closed_cmd if gr_closed else 100.0
+                elif args.gripper_close_bias > 0 and cmd["gripper.pos"] < 45:
                     cmd["gripper.pos"] = max(cmd["gripper.pos"] - args.gripper_close_bias, 0.0)
                 if args.max_delta_per_tick > 0:
                     for n in state_names:

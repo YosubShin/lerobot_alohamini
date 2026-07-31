@@ -59,10 +59,16 @@ and what failure quirks does each carry?
 
 ## Status
 
-- [ ] Kinesthetic pilot QA'd (eps 0–1 good; eps 2–4 frozen-wrist, excluded)
-- [ ] Kinesthetic 100
-- [ ] Teleop rig re-checked (leader arm), teleop pilot 5
-- [ ] Teleop 100
+- [x] Kinesthetic pilot QA'd (frozen-wrist eps excluded — pilot dataset)
+- [x] Kinesthetic 77 collected → 76 after QA (`so101_fisheye_red_pick`);
+      trained k3/k2 two-cam (local) + k3 wrist-only (ripper), all peak @1500
+- [x] Teleop pilot QA'd: natural 3–4-tick plant lead confirmed in-data
+- [x] Teleop 78 collected → 76 after crash repair (`so101_teleop_red_pick`,
+      27L/49R right-skew — watch for side bias); trained 2-cam no-k on
+      ripper, peak @1500 (0.0223). Winners staged under
+      /mnt/nvme/lerobot/outputs/: dp_fisheye_trim1x_{k3,k2} (run dirs),
+      dp_fisheye_k3_wristonly_1500, dp_teleop_2cam_1500.
+      Best deploy flags so far: fps15 interp2 n_action_steps15.
 - [ ] UMI rig ready (SLAM pipeline validated on archive segments), pilot 10
 - [ ] UMI 200
 - [ ] First training pair (decided 2026-07-31): local RTX 6000 = best-known

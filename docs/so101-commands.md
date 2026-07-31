@@ -103,7 +103,10 @@ command→obs round trip:
 |---|---|---|
 | full speed | `--fps 30` | trim1x-**k4** |
 | ⅔ speed | `--fps 20 --interp_substeps 2` | trim1x-**k3** |
-| half speed | `--fps 15 --interp_substeps 2` | trim1x-**k2** |
+| half speed | `--fps 15 --interp_substeps 2 --n_action_steps 15` | trim1x-**k2** ← best (2026-07-31 eval) |
+
+`--max_delta_per_tick` scales with the DATA's stretch factor (1×: 7), not
+with deploy fps or k — action deltas live on the demo timeline.
 
 ### Flag glossary
 

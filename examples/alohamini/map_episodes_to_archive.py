@@ -69,6 +69,9 @@ def main() -> None:
                     help="Repeatable — e.g. workstation dir and a Pi-synced dir")
     ap.add_argument("--legacy_utc_offset", type=float, default=0.0,
                     help="Hours the LEGACY (no 'Z') filenames are ahead of UTC (BST=1)")
+    ap.add_argument("--extract", action="store_true",
+                    help="Cut per-episode 1080p clips (stream copy, MJPG is "
+                         "all-keyframe) into <dataset_root>/videos_1080p/")
     args = ap.parse_args()
 
     jsonl = Path(args.dataset_root).expanduser() / "meta" / "episode_wallclock.jsonl"
@@ -87,8 +90,18 @@ def main() -> None:
         print(f"ep{ep['episode_index']}: {ep['start_utc']} .. {ep['end_utc']}{note}")
         if not hits:
             print("    !! NO ARCHIVE COVERAGE")
-        for w, x, p in hits:
-            print(f"    {p.name}  offset {max(0.0, s - w):7.1f}s .. {min(e, x) - w:7.1f}s")
+        for n, (w, x, p) in enumerate(hits):
+            off, upto = max(0.0, s - w), min(e, x) - w
+            print(f"    {p.name}  offset {off:7.1f}s .. {upto:7.1f}s")
+            if args.extract:
+                out_dir = Path(args.dataset_root).expanduser() / "videos_1080p"
+                out_dir.mkdir(exist_ok=True)
+                part = f"_part{n}" if len(hits) > 1 else ""
+                out = out_dir / f"episode_{ep['episode_index']:06d}{part}.mkv"
+                subprocess.run(
+                    ["ffmpeg", "-v", "error", "-y", "-ss", f"{off:.3f}", "-i", str(p),
+                     "-t", f"{upto - off:.3f}", "-c", "copy", str(out)], check=True)
+                print(f"      -> {out}")
 
 
 if __name__ == "__main__":

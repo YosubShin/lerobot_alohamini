@@ -642,6 +642,13 @@ def main() -> None:
 
     robot.connect()
 
+    # Session-gated 1080p archive: host only writes fisheye segments while a
+    # recording session is active (its ffmpeg restarts, ~1-2 s of stale frames,
+    # which is why this happens BEFORE the pre-flight below).
+    if args.remote_ip and hasattr(robot, "archive_start"):
+        robot.archive_start()
+        time.sleep(3.0)
+
     # Pre-flight: refuse to record on a degraded stream or a frozen camera.
     if args.remote_ip:
         print("Pre-flight: measuring host observation rate (3 s)…", flush=True)
@@ -705,6 +712,12 @@ def main() -> None:
     ):
         print("Quit before first episode.")
         kb.stop()
+        try:
+            if hasattr(robot, "archive_stop"):
+                robot.archive_stop()
+                time.sleep(0.3)
+        except Exception:
+            pass
         try:
             robot.disconnect()
         except Exception as e:
@@ -790,6 +803,12 @@ def main() -> None:
     finally:
         log_say("Stop recording")
         kb.stop()
+        try:
+            if hasattr(robot, "archive_stop"):
+                robot.archive_stop()
+                time.sleep(0.3)  # let the command flush before disconnect
+        except Exception:
+            pass
         try:
             robot.disconnect()
         except Exception as e:

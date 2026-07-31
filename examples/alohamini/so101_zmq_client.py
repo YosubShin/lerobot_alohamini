@@ -130,6 +130,13 @@ class SO101ZmqClient:
     def enable_torque(self) -> None:
         self._send_json({"_cmd": "enable_torque"})
 
+    def archive_start(self) -> None:
+        """Ask the host to archive 1080p fisheye segments for this session."""
+        self._send_json({"_cmd": "archive_start"})
+
+    def archive_stop(self) -> None:
+        self._send_json({"_cmd": "archive_stop"})
+
     def send_action(self, action: RobotAction) -> RobotAction:
         payload = {k: float(v) for k, v in action.items() if k.endswith(".pos")}
         self._send_json(payload)

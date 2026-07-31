@@ -74,10 +74,32 @@ class H264FisheyeCamera:
         self.frames_read = 0
         self.archive_path: Path | None = None
         self._stopping = False
+        # Session-gated: archive only while a recording session is active
+        # (recorder sends archive_start/archive_stop). Idle host = decode-only.
+        self.archive_enabled = False
+        self._restart_intended = False
 
     def start(self) -> None:
         self.archive_dir.mkdir(parents=True, exist_ok=True)
         threading.Thread(target=self._supervise, daemon=True).start()
+
+    def set_archive(self, on: bool) -> None:
+        if on == self.archive_enabled:
+            return
+        self.archive_enabled = on
+        logging.info("Fisheye archive %s by client request", "ENABLED" if on else "DISABLED")
+        if self.proc is not None and self.proc.poll() is None:
+            self._restart_intended = True
+            proc = self.proc
+            proc.terminate()  # supervisor respawns in the new mode
+
+            def _ensure_dead() -> None:
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()  # ffmpeg can hang flushing a live-input trailer
+
+            threading.Thread(target=_ensure_dead, daemon=True).start()
 
     def _free_gb(self) -> float:
         return shutil.disk_usage(self.archive_dir).free / 1e9
@@ -87,7 +109,7 @@ class H264FisheyeCamera:
                "-f", "v4l2", "-input_format", self.codec, "-framerate", str(self.fps),
                "-video_size", "1920x1080", "-i", self.device]
         free = self._free_gb()
-        if free >= self.MIN_FREE_GB:
+        if self.archive_enabled and free >= self.MIN_FREE_GB:
             # UTC + Z suffix: local-time names once cost a day of forensics
             # (Pi on BST, workstation on PDT).
             base = time.strftime("fisheye_%Y%m%dT%H%M%SZ", time.gmtime())
@@ -95,13 +117,16 @@ class H264FisheyeCamera:
             cmd += ["-map", "0:v", "-c", "copy", "-f", "segment",
                     "-segment_time", str(self.SEGMENT_S), "-segment_format", "matroska",
                     "-reset_timestamps", "1", str(self.archive_path)]
-        else:
+        elif self.archive_enabled:
             self.archive_path = None
             logging.critical(
                 "FISHEYE ARCHIVE DISABLED — only %.1f GB free in %s (need %.0f). "
                 "Live wrist feed continues but 1080p is NOT being saved. Free disk "
-                "space (move old fisheye_*.mkv off the Pi) and restart the host.",
+                "space (move old fisheye_*.mkv off the Pi; run the mover) and "
+                "restart the recording session.",
                 free, self.archive_dir, self.MIN_FREE_GB)
+        else:
+            self.archive_path = None  # idle: decode-only, no disk writes
         cmd += ["-map", "0:v", "-vf", f"scale={self.out_w}:{self.out_h}",
                 "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
@@ -123,6 +148,10 @@ class H264FisheyeCamera:
             self._read_frames()
             if self._stopping:
                 return
+            if self._restart_intended:
+                self._restart_intended = False
+                logging.info("Fisheye ffmpeg restarting (archive toggle)")
+                continue
             logging.critical(
                 "FISHEYE FFMPEG DIED (rc=%s, %.1f GB free) — restarting in %.0f s; "
                 "wrist frames are STALE until it recovers.",
@@ -335,6 +364,9 @@ def main() -> None:
                         robot.send_action(action)
                         hold_goal = action
                         logging.info("%s → holding %d joints", cmd, len(action))
+                    elif cmd in ("archive_start", "archive_stop"):
+                        if fisheye is not None:
+                            fisheye.set_archive(cmd == "archive_start")
                     elif cmd == "ping":
                         pass
                     else:

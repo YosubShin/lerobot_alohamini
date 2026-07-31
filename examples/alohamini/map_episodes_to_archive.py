@@ -101,6 +101,9 @@ def main() -> None:
                 out_dir.mkdir(exist_ok=True)
                 part = f"_part{n}" if len(hits) > 1 else ""
                 out = out_dir / f"episode_{ep['episode_index']:06d}{part}.mkv"
+                if out.exists() and out.stat().st_size > 0:
+                    print(f"      -> {out} (exists, skipped)")
+                    continue
                 subprocess.run(
                     ["ffmpeg", "-v", "error", "-y", "-ss", f"{off:.3f}", "-i", str(p),
                      "-t", f"{upto - off:.3f}", "-c", "copy", str(out)], check=True)

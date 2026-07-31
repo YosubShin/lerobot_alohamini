@@ -387,11 +387,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--remote_ip",
         type=str,
-        default=None,
-        help=(
-            "If set, connect to so101_zmq_host.py on the Pi and write the dataset HERE. "
-            f"Typical value: {_DEFAULT_REMOTE_IP}"
-        ),
+        default=_DEFAULT_REMOTE_IP,
+        help="so101_zmq_host.py address on the Pi; the dataset writes HERE",
+    )
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="Direct USB mode (run ON the Pi, no host): ignores --remote_ip",
     )
     parser.add_argument("--zmq_cmd_port", type=int, default=5601)
     parser.add_argument("--zmq_obs_port", type=int, default=5602)
@@ -452,7 +454,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore saved home JSON and re-capture home from the arm's pose at connect time",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.direct:
+        args.remote_ip = None
+    return args
 
 
 def _build_local_cameras(args: argparse.Namespace) -> dict[str, OpenCVCameraConfig]:

@@ -58,7 +58,10 @@ def _archive_windows(archive_dir: Path, legacy_utc_offset: float) -> list[tuple[
             base -= legacy_utc_offset * 3600.0
             seg = int(m.group(3)) if m.group(3) else 0
         start = base + seg * SEGMENT_S
-        windows.append((start, start + _duration_s(p), p))
+        # A segment truncated by ffmpeg being killed has no trailer and probes
+        # as 0 — assume a full segment window rather than dropping it.
+        dur = _duration_s(p) or SEGMENT_S
+        windows.append((start, start + dur, p))
     return windows
 
 

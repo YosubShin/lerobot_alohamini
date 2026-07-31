@@ -42,6 +42,7 @@ import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
+import cv2
 import numpy as np
 import torch
 
@@ -79,10 +80,18 @@ def parse_args() -> argparse.Namespace:
     # safety / start pose
     p.add_argument("--max_delta_per_tick", type=float, default=7.0,
                    help="Per-tick clamp on commanded joint change (0 = off)")
+    p.add_argument("--action_ema", type=float, default=0.0,
+                   help="Low-pass the executed action stream: cmd = a*new + (1-a)*prev. "
+                        "DP's chunks carry a ~0.6 unit/tick noise floor regardless of "
+                        "denoise steps; on 2x-stretched models real motion is smaller than "
+                        "that, so rollouts wander. Try 0.3 (≈2 Hz cutoff at 30 fps). 0 = off.")
     p.add_argument("--chunk_trigger", type=int, default=6,
                    help="Regenerate the next chunk when this many actions remain buffered. "
                         "Raise to 8-10 when running inference on the slower 3090 at 30 fps "
                         "(chunk generation there is ~208 ms vs a 6-tick/200 ms deadline).")
+    p.add_argument("--no_rtc", action="store_true",
+                   help="Disable RTC prefix-inpainting (each chunk becomes an independent "
+                        "sample again, as before 2026-07-30)")
     p.add_argument("--blend_splices", action="store_true",
                    help="Cross-fade between consecutive action chunks (2-chunk temporal "
                         "ensemble). Smooths splice jumps at the cost of averaging modes; "
@@ -93,6 +102,8 @@ def parse_args() -> argparse.Namespace:
                         "--fps 10 --interp_substeps 3 sends smooth 30 Hz ramps instead.")
     p.add_argument("--no_reset", action="store_true",
                    help="Skip the go-home between episodes")
+    p.add_argument("--home_seconds", type=float, default=3.0,
+                   help="Duration of the ramped move to the start pose (higher = gentler)")
     p.add_argument("--log_dir", type=str, default="/mnt/nvme/lerobot/outputs/so101_rollout_logs",
                    help="Per-tick trajectory logs (commanded/observed joints) land here")
     return p.parse_args()
@@ -115,15 +126,23 @@ class AsyncChunkPlanner:
     """
 
     def __init__(self, policy, postprocessor, device: str, trigger: int = 6,
-                 blend: bool = False):
+                 blend: bool = False, rtc: bool = True):
         self.policy = policy
         self.post = postprocessor
         self.device = device
         self.trigger = trigger
         self.blend = blend
+        # RTC-style prefix inpainting (RePaint/Diffuser/Real-Time-Chunking):
+        # each new chunk is generated with the horizon steps that overlap
+        # already-committed actions clamped (forward-noised per denoise step),
+        # so it is a continuation of the executing mode rather than an
+        # independent sample. Kills chunk-boundary mode flip-flop.
+        self.rtc = rtc
         self.lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.buffer: deque[np.ndarray] = deque()
+        self.buffer_norm: deque[torch.Tensor] = deque()  # normalized twins of buffer
+        self.last_exec_norm: torch.Tensor | None = None
         self.future = None
         self.ticks_since_trigger = 0
 
@@ -132,6 +151,8 @@ class AsyncChunkPlanner:
             self.future.result()  # let a stale job finish; discard it
         self.future = None
         self.buffer.clear()
+        self.buffer_norm.clear()
+        self.last_exec_norm = None
         self.policy.reset()
 
     def _feed_obs(self, batch: dict) -> None:
@@ -142,19 +163,66 @@ class AsyncChunkPlanner:
         with self.lock:
             self.policy._queues = populate_queues(self.policy._queues, batch)
 
-    def _generate(self) -> list[np.ndarray]:
+    def _generate(self, prefix_norm: torch.Tensor | None) -> tuple[list[np.ndarray], torch.Tensor]:
+        """Generate one chunk; if prefix_norm (P, adim) is given, inpaint it.
+
+        prefix_norm rows are the normalized actions for horizon indices 0..P-1:
+        index 0 is the last EXECUTED action (chunk j = -1), the rest are the
+        still-buffered committed actions (chunk j = 0..). generate_actions'
+        chunk slice starts at horizon index n_obs_steps-1 = 1, so this prefix
+        occupies exactly the steps the new chunk must agree with.
+        """
         with self.lock:  # snapshot obs history (cheap)
             stacked = {
                 k: torch.stack(list(q), dim=1)
                 for k, q in self.policy._queues.items()
                 if k != "action" and len(q) > 0
             }
+        diff = self.policy.diffusion
         with torch.inference_mode():  # expensive denoising — no lock held
-            chunk = self.policy.diffusion.generate_actions(stacked)  # (1, n, dim)
+            if prefix_norm is None or not self.rtc or len(prefix_norm) == 0:
+                chunk = diff.generate_actions(stacked)  # (1, n, dim)
+                chunk_norm = chunk
+            else:
+                global_cond = diff._prepare_global_conditioning(stacked)
+                device, dtype = global_cond.device, global_cond.dtype
+                horizon = diff.config.horizon
+                adim = diff.config.action_feature.shape[0]
+                known = prefix_norm.unsqueeze(0).to(device=device, dtype=dtype)  # (1,P,adim)
+                P = known.shape[1]
+                sample = torch.randn(1, horizon, adim, device=device, dtype=dtype)
+                diff.noise_scheduler.set_timesteps(diff.num_inference_steps)
+                for t in diff.noise_scheduler.timesteps:
+                    ts = torch.as_tensor([t], device=device)
+                    noised = diff.noise_scheduler.add_noise(known, torch.randn_like(known), ts)
+                    sample[:, :P] = noised
+                    model_output = diff.unet(
+                        sample,
+                        torch.full(sample.shape[:1], t, dtype=torch.long, device=device),
+                        global_cond=global_cond,
+                    )
+                    sample = diff.noise_scheduler.step(model_output, t, sample).prev_sample
+                sample[:, :P] = known  # exact clamp on the committed steps
+                # Bridge the clamp boundary: with few DDIM steps the free region
+                # harmonizes imperfectly with the clamped prefix, leaving a
+                # 5-10 deg step exactly where the clamp ends (measured on-robot:
+                # jumps cluster at +3 ticks after splices). Linearly bridge a
+                # 4-step window from the last clamped action into the generated
+                # tail — one mode, so this is smoothing, not mode-averaging.
+                B = 4
+                if P + B < horizon:
+                    a0 = sample[:, P - 1]
+                    a1 = sample[:, P + B]
+                    for i in range(B):
+                        w = (i + 1.0) / (B + 1.0)
+                        sample[:, P + i] = (1 - w) * a0 + w * a1
+                start = diff.config.n_obs_steps - 1
+                chunk_norm = sample[:, start:start + diff.config.n_action_steps]
+                chunk = chunk_norm
             out = []
             for i in range(chunk.shape[1]):
                 out.append(self.post(chunk[:, i]).squeeze(0).cpu().numpy())
-        return out
+        return out, chunk_norm.squeeze(0).detach().cpu()
 
     def step(self, batch: dict) -> np.ndarray | None:
         """Feed one observation, return the action for this tick (None = warm-up)."""
@@ -163,29 +231,41 @@ class AsyncChunkPlanner:
 
         if self.future is None and len(self.buffer) <= self.trigger:
             self.ticks_since_trigger = 0
-            self.future = self.pool.submit(self._generate)
+            prefix = None
+            if self.rtc and self.last_exec_norm is not None:
+                prefix = torch.stack([self.last_exec_norm] + list(self.buffer_norm))
+            self.future = self.pool.submit(self._generate, prefix)
 
-        if (not self.buffer) or (self.blend and self.future is not None and self.future.done()):
+        if (not self.buffer) or ((self.blend or self.rtc)
+                                 and self.future is not None and self.future.done()):
             # Splice in the new chunk. Default: execute the old chunk to its
             # end, then hard-switch (time-aligned by dropping elapsed actions).
-            # With blend=True, switch early and cross-fade old->new over the
-            # overlap instead (tried 2026-07-29; hard splice felt better on
-            # the robot at 10 fps, so blending is opt-in).
-            chunk = self.future.result()  # blocks only if generation outran the buffer
+            # With RTC inpainting the new chunk is already a continuation of
+            # the old one, so the hard switch is seamless by construction.
+            # blend=True cross-fades instead (pre-RTC option, kept for A/B).
+            chunk, chunk_norm = self.future.result()  # blocks only if generation outran the buffer
             self.future = None
             skip = min(self.ticks_since_trigger, len(chunk) - 1)
             new = chunk[skip:]
-            if self.blend:
+            new_norm = [chunk_norm[i] for i in range(skip, len(chunk))]
+            if self.blend and not self.rtc:
                 old = list(self.buffer)
                 n_blend = min(len(old), len(new) - 1)
                 self.buffer.clear()
+                self.buffer_norm.clear()
                 for i in range(n_blend):
                     w = (i + 1.0) / (n_blend + 1.0)  # ramp old -> new
                     self.buffer.append((1.0 - w) * old[i] + w * new[i])
+                    self.buffer_norm.append(new_norm[i])
                 self.buffer.extend(new[n_blend:])
+                self.buffer_norm.extend(new_norm[n_blend:])
             else:
+                self.buffer.clear()
+                self.buffer_norm.clear()
                 self.buffer.extend(new)
+                self.buffer_norm.extend(new_norm)
 
+        self.last_exec_norm = self.buffer_norm.popleft()
         return self.buffer.popleft()
 
 
@@ -247,8 +327,11 @@ def main() -> None:
         preprocessor_overrides={"device_processor": {"device": device}},
     )
     planner = (AsyncChunkPlanner(policy, postprocessor, device,
-                                 trigger=args.chunk_trigger, blend=args.blend_splices)
+                                 trigger=args.chunk_trigger, blend=args.blend_splices,
+                                 rtc=not args.no_rtc)
                if cfg.type == "diffusion" else None)
+    if planner is not None:
+        print(f"Chunk planner: RTC inpainting {'ON' if planner.rtc else 'off'}")
 
     # --- robot ---
     hw_shapes = {c: tuple(meta.features[f"observation.images.{c}"]["shape"]) for c in client_cams}
@@ -274,12 +357,23 @@ def main() -> None:
         joints = {n: float(raw[n]) for n in state_names}
         return obs, joints
 
+    def ramp_to_pose(target: dict[str, float], seconds: float) -> None:
+        """Move to `target` along a smooth interpolated path instead of letting
+        the servos snap there at full speed (the host's go_home is a single
+        goal-position jump)."""
+        _, cur = policy_obs()
+        n = max(1, int(seconds * 30))
+        for i in range(1, n + 1):
+            w = i / n
+            robot.send_action({k: cur[k] + w * (target[k] - cur[k]) for k in state_names})
+            precise_sleep(1.0 / 30)
+
     interval = 1.0 / args.fps
     try:
         for ep in range(args.num_episodes):
             if reset_pose is not None:
                 log_say("Going to start pose")
-                robot.go_home(reset_pose)
+                ramp_to_pose(reset_pose, args.home_seconds)
             input(f"\nReset the scene, then press ENTER to start episode {ep + 1} "
                   f"of {args.num_episodes}…")
             log_say(f"Episode {ep + 1}")
@@ -293,6 +387,9 @@ def main() -> None:
             _, last_sent = policy_obs()  # seed limiter from the actual pose
 
             rows = []
+            video_writers: dict = {}
+            ep_stamp = time.strftime("%Y%m%d_%H%M%S")
+            log_dir = Path(args.log_dir); log_dir.mkdir(parents=True, exist_ok=True)
             ep_start = time.perf_counter()
             t_end = ep_start + args.episode_time
             while time.perf_counter() < t_end:
@@ -301,6 +398,9 @@ def main() -> None:
                     break
                 t0 = time.perf_counter()
                 obs, joints = policy_obs()
+                # prepare_observation_for_inference mutates obs in place
+                # (numpy -> CUDA tensors) — keep numpy refs for the video log.
+                frames = {c: obs[f"observation.images.{c}"] for c in client_cams}
                 with torch.inference_mode():
                     o = prepare_observation_for_inference(
                         obs, torch.device(device), args.task_description, robot.name)
@@ -314,6 +414,9 @@ def main() -> None:
                     buf_len = -1
                 prev = dict(last_sent)
                 cmd = {n: float(raw[i]) for i, n in enumerate(state_names)}
+                if args.action_ema > 0:
+                    a = args.action_ema
+                    cmd = {n: a * cmd[n] + (1 - a) * prev[n] for n in state_names}
                 if args.max_delta_per_tick > 0:
                     d = args.max_delta_per_tick
                     for n in state_names:
@@ -334,12 +437,22 @@ def main() -> None:
                             + [joints[n] for n in state_names]          # observed
                             + [float(raw[i]) for i in range(len(state_names))]  # policy raw
                             + [cmd[n] for n in state_names])            # sent (post-limiter)
+                for c in client_cams:
+                    frame = frames[c]
+                    if c not in video_writers:
+                        h, w = frame.shape[:2]
+                        video_writers[c] = cv2.VideoWriter(
+                            str(log_dir / f"rollout_{ep_stamp}_ep{ep}_{c}.mp4"),
+                            cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (w, h))
+                    video_writers[c].write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 precise_sleep(max(interval - (time.perf_counter() - t0), 0.0))
             else:
                 print(f"Episode hit the {args.episode_time:.0f}s safety cap.")
-            log_dir = Path(args.log_dir); log_dir.mkdir(parents=True, exist_ok=True)
-            stamp = time.strftime("%Y%m%d_%H%M%S")
-            out = log_dir / f"rollout_{stamp}_ep{ep}.npz"
+            for vw in video_writers.values():
+                vw.release()
+            if video_writers:
+                print(f"Videos: {log_dir}/rollout_{ep_stamp}_ep{ep}_*.mp4")
+            out = log_dir / f"rollout_{ep_stamp}_ep{ep}.npz"
             np.savez_compressed(out, rows=np.array(rows, dtype=np.float32),
                                 columns=np.array(["t", "buffer_len"]
                                                  + [f"obs.{n}" for n in state_names]
@@ -348,8 +461,7 @@ def main() -> None:
             print(f"Trajectory log: {out} ({len(rows)} ticks)")
             log_say("Episode done")
         if reset_pose is not None:
-            robot.go_home(reset_pose)  # leave the arm parked at the start pose
-            time.sleep(1.0)
+            ramp_to_pose(reset_pose, args.home_seconds)  # leave the arm parked at the start pose
     finally:
         robot.disconnect()
         print("Rollout session finished.")

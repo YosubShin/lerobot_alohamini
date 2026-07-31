@@ -65,6 +65,12 @@ and what failure quirks does each carry?
 - [ ] Teleop 100
 - [ ] UMI rig ready (SLAM pipeline validated on archive segments), pilot 10
 - [ ] UMI 200
+- [ ] First training pair (decided 2026-07-31): local RTX 6000 = best-known
+      recipe (two-cam, trim + k-shift, transforms on, save_freq 500);
+      ripper = **wrist-only fisheye ablation** (config-only; doubles as the
+      UMI-comparison baseline — the old wrist-only result predates the
+      fisheye). Queue weight-EMA after it; spline/basis parked (breaks RTC
+      prefix-inpainting; smoothness currently mitigated by fps ladder).
 - [ ] Trainings: 3 modalities × n∈{40,70,100} wrist-only (+2 two-cam arms)
 - [ ] Shared eval grid runs
 - [ ] Write-up in experiments doc

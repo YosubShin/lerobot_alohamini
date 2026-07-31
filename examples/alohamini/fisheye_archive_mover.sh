@@ -11,7 +11,9 @@ DEST=${2:-/mnt/nvme/lerobot/fisheye_archive}
 mkdir -p "$DEST"
 echo "Moving completed segments from $PI:~/fisheye_archive to $DEST (Ctrl-C to stop)"
 while true; do
-  files=$(ssh "$PI" 'ls -t ~/fisheye_archive/*.mkv 2>/dev/null | tail -n +2') || files=""
+  # A segment untouched for 30 s is complete (ffmpeg writes continuously) —
+  # this also drains a session's final segment right after archive_stop.
+  files=$(ssh "$PI" 'find ~/fisheye_archive -name "*.mkv" -mmin +0.5 2>/dev/null') || files=""
   if [ -n "$files" ]; then
     srcs=()
     for f in $files; do srcs+=("$PI:$f"); done

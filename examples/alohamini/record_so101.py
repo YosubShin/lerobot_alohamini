@@ -424,6 +424,18 @@ def parse_args() -> argparse.Namespace:
         help="Seconds to hold home pose after each episode before the next record",
     )
     parser.add_argument(
+        "--archive_dir",
+        type=str,
+        default="/mnt/nvme/lerobot/fisheye_archive",
+        help="Where 1080p fisheye segments live on this machine (mover destination)",
+    )
+    parser.add_argument("--remote_user", type=str, default="yosub")
+    parser.add_argument(
+        "--no_extract_1080p",
+        action="store_true",
+        help="Skip the automatic post-session 1080p per-episode extraction",
+    )
+    parser.add_argument(
         "--home_ramp_s",
         type=float,
         default=3.0,
@@ -518,6 +530,30 @@ def _log_episode_wallclock(dataset, start_unix: float, end_unix: float) -> None:
     }
     with open(path, "a") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+def _extract_session_1080p(args: argparse.Namespace, dataset_root: Path) -> None:
+    """Post-session: drain remaining archive segments off the Pi (the archive
+    is already stopped, so files are complete) and cut per-episode 1080p clips
+    into <dataset>/videos_1080p/. Best-effort — never fails the session."""
+    import subprocess
+
+    try:
+        Path(args.archive_dir).mkdir(parents=True, exist_ok=True)
+        print("\nDraining 1080p segments from the Pi…", flush=True)
+        subprocess.run(
+            ["rsync", "-a", "--remove-source-files",
+             f"{args.remote_user}@{args.remote_ip}:fisheye_archive/", f"{args.archive_dir}/"],
+            check=False, timeout=600)
+        print("Extracting per-episode 1080p clips…", flush=True)
+        subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "map_episodes_to_archive.py"),
+             "--dataset_root", str(dataset_root),
+             "--archive_dir", args.archive_dir, "--extract"],
+            check=False, timeout=1800)
+    except Exception as e:
+        print(f"(1080p extraction skipped: {e} — run map_episodes_to_archive.py "
+              f"--extract manually)", flush=True)
 
 
 def kinesthetic_record_loop(
@@ -818,6 +854,8 @@ def main() -> None:
         dataset.finalize()
 
     print(f"Dataset saved locally at: {dataset.root.resolve()}")
+    if args.remote_ip and recorded_episodes and not args.no_extract_1080p:
+        _extract_session_1080p(args, dataset.root)
     if args.push_to_hub:
         print(f"Uploading dataset to Hugging Face Hub: {dataset.repo_id}")
         dataset.push_to_hub()

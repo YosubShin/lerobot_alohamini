@@ -72,17 +72,40 @@ _HOME_POSE_PATH = Path(__file__).resolve().parent / "so101_home_pose.json"
 _MIN_OBS_RATE_FRACTION = 0.93
 
 
-def _measure_obs_rate(robot, seconds: float = 3.0) -> float | None:
-    """Remote mode: true host observation rate via the client's msgs_received counter."""
+def _measure_obs_rate(robot, seconds: float = 3.0) -> tuple[float | None, list[str]]:
+    """Remote mode: true host observation rate via the client's msgs_received
+    counter, plus any cameras whose frames never changed over the window
+    (a frozen feed — e.g. the host's fisheye ffmpeg died)."""
+    import numpy as np
+
     if not hasattr(robot, "msgs_received"):
-        return None
-    robot.get_observation()  # warm the stream
+        return None, []
+    first = robot.get_observation()  # warm the stream
+    baseline = {k: v.copy() for k, v in first.items() if isinstance(v, np.ndarray) and v.ndim == 3}
+    changed = set()
     m0 = robot.msgs_received
     t0 = time.perf_counter()
     while time.perf_counter() - t0 < seconds:
-        robot.get_observation()
+        obs = robot.get_observation()
+        for cam, ref in baseline.items():
+            if cam not in changed and not np.array_equal(obs[cam], ref):
+                changed.add(cam)
         time.sleep(0.004)
-    return (robot.msgs_received - m0) / (time.perf_counter() - t0)
+    hz = (robot.msgs_received - m0) / (time.perf_counter() - t0)
+    frozen = sorted(set(baseline) - changed)
+    return hz, frozen
+
+
+def _frozen_cam_banner(cams: list[str]) -> str:
+    return (
+        "\n" + "!" * 74 + "\n"
+        f"!!  CAMERA FEED FROZEN: {', '.join(cams)} — frames are not updating.\n"
+        "!!  Recording would save the same stale image on every tick.\n"
+        "!!  Usual cause: the host's fisheye ffmpeg died (check disk space on the\n"
+        "!!  Pi — `df -h /` — and look for CRITICAL lines in ~/so101_host.log),\n"
+        "!!  or a camera was unplugged. Fix and restart the host, then rerun.\n"
+        + "!" * 74
+    )
 
 
 def _obs_rate_banner(measured_hz: float, needed_hz: float) -> str:
@@ -488,11 +511,18 @@ def kinesthetic_record_loop(
     display_data: bool,
     kb: FocusKeyboard | None = None,
 ) -> None:
+    import numpy as np
+
     control_interval = 1.0 / fps
     start_episode_t = time.perf_counter()
     frame_i = 0
     rate_check_every = max(int(fps * 3), 1)
     msgs0 = getattr(robot, "msgs_received", None)
+    # Frozen-camera watchdog: a live sensor never produces byte-identical
+    # frames for a full second; a dead host-side feed always does.
+    frozen_limit = int(fps * 1.0)
+    prev_frames: dict[str, np.ndarray] = {}
+    frozen_run: dict[str, int] = {}
 
     while (time.perf_counter() - start_episode_t) < control_time_s:
         if kb is not None:
@@ -507,6 +537,21 @@ def kinesthetic_record_loop(
         t0 = time.perf_counter()
         obs = robot.get_observation()
         action = _joint_action_from_obs(obs)
+
+        for cam, frame in obs.items():
+            if not (isinstance(frame, np.ndarray) and frame.ndim == 3):
+                continue
+            if cam in prev_frames and np.array_equal(frame, prev_frames[cam]):
+                frozen_run[cam] = frozen_run.get(cam, 0) + 1
+            else:
+                frozen_run[cam] = 0
+                prev_frames[cam] = frame.copy()
+        stuck = [c for c, n in frozen_run.items() if n >= frozen_limit]
+        if stuck:
+            print(_frozen_cam_banner(stuck), flush=True)
+            events["stop_recording"] = True
+            events["slow_obs_abort"] = True
+            break
 
         if dataset is not None:
             observation_frame = build_dataset_frame(dataset.features, obs, prefix=OBS_STR)
@@ -577,20 +622,25 @@ def main() -> None:
 
     robot.connect()
 
-    # Pre-flight: refuse to record on a degraded observation stream.
+    # Pre-flight: refuse to record on a degraded stream or a frozen camera.
     if args.remote_ip:
         print("Pre-flight: measuring host observation rate (3 s)…", flush=True)
-        obs_hz = _measure_obs_rate(robot)
+        obs_hz, frozen = _measure_obs_rate(robot)
         needed_hz = args.fps * _MIN_OBS_RATE_FRACTION
+        failed = (obs_hz is not None and obs_hz < needed_hz) or frozen
         if obs_hz is not None and obs_hz < needed_hz:
             print(_obs_rate_banner(obs_hz, needed_hz), flush=True)
+        if frozen:
+            print(_frozen_cam_banner(frozen), flush=True)
+        if failed:
             try:
                 robot.disconnect()
             except Exception:
                 pass
             raise SystemExit(1)
         if obs_hz is not None:
-            print(f"Observation rate OK: {obs_hz:.1f} Hz (need >= {needed_hz:.1f})", flush=True)
+            print(f"Observation rate OK: {obs_hz:.1f} Hz (need >= {needed_hz:.1f}); "
+                  f"cameras live: all", flush=True)
 
     # Latch home: prefer saved JSON unless --relatch_home, else capture current pose.
     home_path = Path(args.home_pose)

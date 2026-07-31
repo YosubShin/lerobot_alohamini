@@ -115,10 +115,27 @@ ENTER stops an episode; Ctrl-C freezes the arm in place (torque held).
 The Low Light fisheye is a multi-interface UVC camera: an H264 node
 (`/dev/am_camera_fisheye`) and an MJPG/YUYV node — both max **1080p30**
 (no 60 fps on any interface; verified). Integrated into the host via
-`--wrist_h264`: one ffmpeg process tees the camera's own H264 into a
-timestamped `~/fisheye_archive/*.mkv` (full-res, SLAM-ready, ~9 Mbps ≈ 6 GB
-per 1.5 h) and pipes decoded 320x240 frames into the normal live stream —
-client/recorder unchanged. Start the host with:
+`--wrist_h264`: one ffmpeg process tees the camera's stream into
+`~/fisheye_archive/fisheye_<ts>_%04d.mkv` **5-minute segments** (full-res
+SLAM source; MJPG default ≈ **19 GB/hour**) and pipes decoded 320x240 frames
+into the normal live stream — client/recorder unchanged.
+
+Hard-learned disk rules (a full SD card killed ffmpeg mid-session once —
+frozen wrist frames in every episode after, plus write backpressure that
+dropped the host loop to 26 Hz as it filled):
+
+- The host **auto-restarts** a dead archive ffmpeg (3 s backoff) and drops to
+  **decode-only** below 3 GB free (live feed survives; CRITICAL in the log).
+- The recorder **aborts on frozen frames**: pre-flight and a per-tick
+  watchdog (any camera byte-identical for 1 s) both refuse to record.
+- For sessions longer than ~40 min, run the rolling mover on the
+  workstation — it pulls completed segments off the Pi every minute:
+
+```bash
+./examples/alohamini/fisheye_archive_mover.sh   # user@pi and dest overridable
+```
+
+Start the host with:
 
 ```bash
 python examples/alohamini/so101_zmq_host.py \

@@ -56,6 +56,10 @@ class H264FisheyeCamera:
     encode/decode color semantics.
     """
 
+    SEGMENT_S = 300           # archive in 5-min chunks so completed ones can be moved off the Pi
+    MIN_FREE_GB = 3.0         # below this, run decode-only: live feed survives, archive pauses
+    RESTART_BACKOFF_S = 3.0
+
     def __init__(self, device: str, out_w: int, out_h: int, archive_dir: str,
                  ffmpeg: str = "ffmpeg", fps: int = 30, codec: str = "mjpeg"):
         # codec: "mjpeg" (video1 node, ~43 Mbps, 4x sharper — better SLAM source)
@@ -69,23 +73,61 @@ class H264FisheyeCamera:
         self.lock = threading.Lock()
         self.frames_read = 0
         self.archive_path: Path | None = None
+        self._stopping = False
 
     def start(self) -> None:
         self.archive_dir.mkdir(parents=True, exist_ok=True)
-        self.archive_path = self.archive_dir / time.strftime("fisheye_%Y%m%d_%H%M%S.mkv")
+        threading.Thread(target=self._supervise, daemon=True).start()
+
+    def _free_gb(self) -> float:
+        return shutil.disk_usage(self.archive_dir).free / 1e9
+
+    def _spawn(self) -> None:
         cmd = [self.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
                "-f", "v4l2", "-input_format", self.codec, "-framerate", str(self.fps),
-               "-video_size", "1920x1080", "-i", self.device,
-               "-map", "0:v", "-c", "copy", "-f", "matroska", str(self.archive_path),
-               "-map", "0:v", "-vf", f"scale={self.out_w}:{self.out_h}",
-               "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
+               "-video_size", "1920x1080", "-i", self.device]
+        free = self._free_gb()
+        if free >= self.MIN_FREE_GB:
+            base = time.strftime("fisheye_%Y%m%d_%H%M%S")
+            self.archive_path = self.archive_dir / f"{base}_%04d.mkv"
+            cmd += ["-map", "0:v", "-c", "copy", "-f", "segment",
+                    "-segment_time", str(self.SEGMENT_S), "-segment_format", "matroska",
+                    "-reset_timestamps", "1", str(self.archive_path)]
+        else:
+            self.archive_path = None
+            logging.critical(
+                "FISHEYE ARCHIVE DISABLED — only %.1f GB free in %s (need %.0f). "
+                "Live wrist feed continues but 1080p is NOT being saved. Free disk "
+                "space (move old fisheye_*.mkv off the Pi) and restart the host.",
+                free, self.archive_dir, self.MIN_FREE_GB)
+        cmd += ["-map", "0:v", "-vf", f"scale={self.out_w}:{self.out_h}",
+                "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, bufsize=0)
-        threading.Thread(target=self._read_loop, daemon=True).start()
-        logging.info("Fisheye H264: %s -> %s (+%dx%d live)",
-                     self.device, self.archive_path, self.out_w, self.out_h)
+        logging.info("Fisheye H264: %s -> %s (+%dx%d live, %.1f GB free)",
+                     self.device, self.archive_path or "NO ARCHIVE", self.out_w, self.out_h, free)
 
-    def _read_loop(self) -> None:
+    def _supervise(self) -> None:
+        """Keep ffmpeg alive: respawn on death (disk-full kills the writer) with
+        backoff. During downtime `latest` goes stale — the recorder's frozen-frame
+        guard aborts rather than saving duplicated wrist images."""
+        while not self._stopping:
+            try:
+                self._spawn()
+            except Exception:
+                logging.exception("Fisheye spawn failed — retrying in %.0f s", self.RESTART_BACKOFF_S)
+                time.sleep(self.RESTART_BACKOFF_S)
+                continue
+            self._read_frames()
+            if self._stopping:
+                return
+            logging.critical(
+                "FISHEYE FFMPEG DIED (rc=%s, %.1f GB free) — restarting in %.0f s; "
+                "wrist frames are STALE until it recovers.",
+                self.proc.poll(), self._free_gb(), self.RESTART_BACKOFF_S)
+            time.sleep(self.RESTART_BACKOFF_S)
+
+    def _read_frames(self) -> None:
         n = self.out_w * self.out_h * 3
         stream = self.proc.stdout
         while True:
@@ -94,7 +136,6 @@ class H264FisheyeCamera:
             while got < n:
                 piece = stream.read(n - got)
                 if not piece:
-                    logging.error("Fisheye ffmpeg pipe closed (rc=%s)", self.proc.poll())
                     return
                 chunks.append(piece)
                 got += len(piece)
@@ -108,6 +149,7 @@ class H264FisheyeCamera:
             return self.latest
 
     def stop(self) -> None:
+        self._stopping = True
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
             try:

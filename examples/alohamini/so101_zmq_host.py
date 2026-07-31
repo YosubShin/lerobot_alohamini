@@ -331,6 +331,8 @@ def main() -> None:
     )
 
     hold_goal: dict[str, float] | None = None
+    obs_fail_since: float | None = None
+    last_reconnect_try = 0.0
     t0 = time.perf_counter()
     loop_dt = 1.0 / args.fps
     try:
@@ -387,8 +389,31 @@ def main() -> None:
             # --- observation ---
             try:
                 obs = robot.get_observation()
+                obs_fail_since = None
             except Exception:
                 logging.exception("get_observation failed")
+                now = time.perf_counter()
+                if obs_fail_since is None:
+                    obs_fail_since = now
+                # Overcurrent protection (or bus loss) disconnects the robot;
+                # without this the host zombies at 0 Hz until manually killed.
+                if now - obs_fail_since > 3.0 and now - last_reconnect_try > 5.0:
+                    last_reconnect_try = now
+                    logging.critical(
+                        "Robot unresponsive %.0f s — attempting reconnect "
+                        "(torque comes back OFF; client must re-engage)",
+                        now - obs_fail_since)
+                    try:
+                        try:
+                            robot.disconnect()
+                        except Exception:
+                            pass
+                        robot.connect()
+                        hold_goal = None
+                        obs_fail_since = None
+                        logging.critical("ROBOT RECONNECTED after protective trip / comm loss")
+                    except Exception:
+                        logging.exception("Reconnect failed — will retry in 5 s")
                 time.sleep(loop_dt)
                 continue
 

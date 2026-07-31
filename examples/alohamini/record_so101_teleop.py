@@ -314,6 +314,10 @@ def main() -> None:
                         print(f"  not yet (rate={hz and f'{hz:.1f}'} Hz, frozen={frz or 'none'})"
                               f" — retrying in 3 s", flush=True)
                         time.sleep(3)
+                    # A protective trip (e.g. overcurrent) reconnects the robot
+                    # with torque OFF — re-latch by ramping to the leader pose.
+                    print("Re-engaging follower (ramp to leader pose)…", flush=True)
+                    _ramp_to_pose(robot, leader.get_action(), 2.0)
                 if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps):
                     break
                 continue

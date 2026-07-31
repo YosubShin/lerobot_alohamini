@@ -26,6 +26,12 @@ experiments, in the order they must run. Reference scripts:
 7. **Left/right balance**: compute grasp-side split (+y = left, physically
    verified); > 60/40 imbalance → collect more on the weak side (the 47L/27R
    imbalance produced a left-only policy). Don't fix by dropping episodes.
+8. **Contiguous episode indices**: discarded episodes leak their index
+   (`clear_episode_buffer` doesn't reset the counter), leaving gaps that make
+   the loader's sufficiency check fail — it then silently falls back to the
+   HF hub and 404s. Check `set(range(total_episodes)) == data episode set`;
+   repair by renumbering data + meta + sidecar + 1080p clips (2026-07-31:
+   teleop set had ghosts 13/14, and `info.json` counted their frames).
 
 ## B. Sample-level derivation (order matters)
 

@@ -116,9 +116,17 @@ The Low Light fisheye is a multi-interface UVC camera: an H264 node
 (`/dev/am_camera_fisheye`) and an MJPG/YUYV node — both max **1080p30**
 (no 60 fps on any interface; verified). Integrated into the host via
 `--wrist_h264`: one ffmpeg process tees the camera's stream into
-`~/fisheye_archive/fisheye_<ts>_%04d.mkv` **5-minute segments** (full-res
+`~/fisheye_archive/fisheye_<UTC>Z_%04d.mkv` **5-minute segments** (full-res
 SLAM source; MJPG default ≈ **19 GB/hour**) and pipes decoded 320x240 frames
 into the normal live stream — client/recorder unchanged.
+
+Archiving is **session-gated**: an idle host runs decode-only (zero disk);
+the recorder switches the archive on at session start and off at exit
+(`archive_start`/`archive_stop` commands). Episodes map to segments via
+`meta/episode_wallclock.jsonl` (written per save) and
+`map_episodes_to_archive.py` — add `--extract` to cut per-episode 1080p
+clips into `<dataset>/videos_1080p/` (legacy local-time filenames need
+`--legacy_utc_offset 1` for BST).
 
 Hard-learned disk rules (a full SD card killed ffmpeg mid-session once —
 frozen wrist frames in every episode after, plus write backpressure that

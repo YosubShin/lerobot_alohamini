@@ -85,9 +85,9 @@ def parse_args() -> argparse.Namespace:
                         "limiter was silently halving close speed at fps15, giving a "
                         "slippery block time to squirt out (0 = no gripper clamp)")
     p.add_argument("--gripper_close_bias", type=float, default=0.0,
-                   help="Extra closure subtracted from gripper commands below 70 "
-                        "(kinesthetic models command ~block width with zero squeeze "
-                        "margin — action==state has no force signal; try 10-15)")
+                   help="Extra closure subtracted from gripper commands below 45 (committed closes only — "
+                        "biasing mid-range hover commands parks the gripper in the holding-ambiguity zone "
+                        "and causes descend-lift oscillation; kinesthetic models need ~10-15)")
     p.add_argument("--action_ema", type=float, default=0.0,
                    help="Low-pass the executed action stream: cmd = a*new + (1-a)*prev. "
                         "DP's chunks carry a ~0.6 unit/tick noise floor regardless of "
@@ -425,7 +425,7 @@ def main() -> None:
                 if args.action_ema > 0:
                     a = args.action_ema
                     cmd = {n: a * cmd[n] + (1 - a) * prev[n] for n in state_names}
-                if args.gripper_close_bias > 0 and cmd["gripper.pos"] < 70:
+                if args.gripper_close_bias > 0 and cmd["gripper.pos"] < 45:
                     cmd["gripper.pos"] = max(cmd["gripper.pos"] - args.gripper_close_bias, 0.0)
                 if args.max_delta_per_tick > 0:
                     for n in state_names:
@@ -468,7 +468,8 @@ def main() -> None:
                                 columns=np.array(["t", "buffer_len"]
                                                  + [f"obs.{n}" for n in state_names]
                                                  + [f"raw.{n}" for n in state_names]
-                                                 + [f"cmd.{n}" for n in state_names]))
+                                                 + [f"cmd.{n}" for n in state_names]),
+                                config_json=json.dumps(vars(args)))
             print(f"Trajectory log: {out} ({len(rows)} ticks)")
             log_say("Episode done")
         if reset_pose is not None:

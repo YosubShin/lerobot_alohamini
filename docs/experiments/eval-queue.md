@@ -16,8 +16,11 @@ python examples/alohamini/evaluate_so101.py \
     <common flags>
 ```
 
-Priority 0 — hardware-tolerance control (5 min, do first): place the block
-exactly as in a training episode and `replay_so101.py` that episode. Replay
+Priority 0 — hardware-tolerance control (5 min, do first): pick a TELEOP
+episode (its action stream already produced a successful grasp on this
+hardware; kinesthetic replay is confounded by the zero-squeeze gripper),
+match the block placement using its `videos_1080p/` clip, and
+`replay_so101.py --dataset local/so101_teleop_red_pick` that episode. Replay
 re-grasps reliably → hardware repeatability is inside task tolerance and the
 failures are policy/inference. Replay also misses → backlash/slop exceeds
 tolerance: tighten screws, grip-tape the block, favor one consistent

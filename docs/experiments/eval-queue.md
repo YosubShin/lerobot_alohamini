@@ -16,6 +16,13 @@ python examples/alohamini/evaluate_so101.py \
     <common flags>
 ```
 
+Priority 0 — hardware-tolerance control (5 min, do first): place the block
+exactly as in a training episode and `replay_so101.py` that episode. Replay
+re-grasps reliably → hardware repeatability is inside task tolerance and the
+failures are policy/inference. Replay also misses → backlash/slop exceeds
+tolerance: tighten screws, grip-tape the block, favor one consistent
+approach direction in future demos.
+
 | pri | model (`/mnt/nvme/lerobot/outputs/…`) | dataset root (`yosubshin/…`) | tests | result |
 |---|---|---|---|---|
 | 1 | `dp_mix_deepgrip_2500` | `so101_mix_k2deep_teleop_wristonly` | kinesthetic gripper deepened IN DATA — removes the "close=52" mode entirely (root-cause fix for the 60-70 mode-average hover) | |

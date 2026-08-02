@@ -44,13 +44,13 @@ New candidate v2:
 
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
-| `dp_mix_grasppure2x_wristonly` | `so101_mix_grasppure2x_wristonly` | **champion minus ONE thing**: exact teleop2x recipe (kin k2 + teleop×2, ~90k frames) but kinesthetic episodes SPLIT into approach + post-grasp segments — only the close windows excised (kin gripper range in data: 45.6-100, zero table-grasp closes; 4 regrip segments excluded from training). Single-variable test of the grasp-conflict theory at full volume. | **staged: `dp_mix_grasppure2x_wristonly_3000`** (val peak 0.0212 @3000 — same peak step as champion, consistent with matched volume) |
+| `dp_mix_grasppure2x_wristonly` | `so101_mix_grasppure2x_wristonly` | **champion minus ONE thing**: exact teleop2x recipe (kin k2 + teleop×2, ~90k frames) but kinesthetic episodes SPLIT into approach + post-grasp segments — only the close windows excised (kin gripper range in data: 45.6-100, zero table-grasp closes; 4 regrip segments excluded from training). Single-variable test of the grasp-conflict theory at full volume. | **EVAL'D: 2nd best — approach smooth, grasp hesitation persists despite excision.** |
 
 New candidate v3:
 
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
-| `dp_mix_grasppure2x_wide_wristonly` | `so101_mix_grasppure2x_wide_wristonly` | v2 with the excision widened to 2.5 s before each kinesthetic close — near-block endgame is teleop-only (v2 eval: approach smooth, residual grasp bimodality in the uncovered 0.5 s zone) | **staged: `dp_mix_grasppure2x_wide_wristonly_1500`** (val peak 0.0238 @1500) |
+| `dp_mix_grasppure2x_wide_wristonly` | `so101_mix_grasppure2x_wide_wristonly` | v2 with the excision widened to 2.5 s before each kinesthetic close — near-block endgame is teleop-only (v2 eval: approach smooth, residual grasp bimodality in the uncovered 0.5 s zone) | **EVAL'D: FAILED — can't find block, erratic approach.** |
 
 2026-08-01 eval verdicts (rollouts): teleop2x = best APPROACH (volume) but
 bimodal near grasp (kinesthetic + teleop grasp distributions conflict, policy
@@ -62,3 +62,17 @@ broken (over-weighted grasp clips). Phase-split is the synthesis.
 - `--n_action_steps 20/30` control runs (expect worse, per 2026-08-01 finding)
 - side-balance: grasp success split L vs R (teleop data skews 27L/49R)
 - grip tape on the block (still untried)
+
+## 2026-08-02 verdict: data-surgery line CLOSED
+
+Dose-response across cuts: phase-split (heavy cut) erratic; grasppure2x
+(2 s excision) 2nd-best but grasp hesitation persists; grasppure2x-wide
+(2.5 s pre-cut) erratic, can't find block. Artificial mid-trajectory cutting
+does not remove the grasp bimodality and destabilizes rollouts (volume loss
++ segment fragmentation). CHAMPION REMAINS dp_mix_teleop2x_3000.
+
+Next phase (data frozen at so101_mix_k2teleop2x_wristonly):
+1. Model-side, one at a time: weight EMA (DP-paper trainer feature), then
+   spline/basis action heads (requires eval-harness RTC rework).
+2. Parallel: collect ~80-100 more teleop eps (left-heavy, grasp-dense,
+   ~25% recovery demos) — the confirmed data lever.

@@ -38,7 +38,7 @@ New candidate:
 
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
-| `dp_mix_phasesplit_wristonly` | `so101_mix_phasesplit_wristonly` | **phase-split composition**: kinesthetic approach-only (70 eps truncated pre-grasp, zero grasp contamination) + full teleop (76) + moderate grasp clips (65; 17% of frames vs graspx2's 40%). Approach gets volume, grasp gets purity. Trained with drop_n_last_frames=63 (no padded windows at truncation cuts). | training on ripper |
+| `dp_mix_phasesplit_wristonly` | `so101_mix_phasesplit_wristonly` | **phase-split composition**: kinesthetic approach-only (70 eps truncated pre-grasp, zero grasp contamination) + full teleop (76) + moderate grasp clips (65; 17% of frames vs graspx2's 40%). Approach gets volume, grasp gets purity. Trained with drop_n_last_frames=63 (no padded windows at truncation cuts). | **staged: `dp_mix_phasesplit_wristonly_1500`** (val peak 0.0209 @1500) |
 
 2026-08-01 eval verdicts (rollouts): teleop2x = best APPROACH (volume) but
 bimodal near grasp (kinesthetic + teleop grasp distributions conflict, policy

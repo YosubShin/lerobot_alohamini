@@ -38,7 +38,13 @@ New candidate:
 
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
-| `dp_mix_phasesplit_wristonly` | `so101_mix_phasesplit_wristonly` | **phase-split composition**: kinesthetic approach-only (70 eps truncated pre-grasp, zero grasp contamination) + full teleop (76) + moderate grasp clips (65; 17% of frames vs graspx2's 40%). Approach gets volume, grasp gets purity. Trained with drop_n_last_frames=63 (no padded windows at truncation cuts). | **staged: `dp_mix_phasesplit_wristonly_1500`** (val peak 0.0209 @1500) |
+| `dp_mix_phasesplit_wristonly` | `so101_mix_phasesplit_wristonly` | **phase-split composition**: kinesthetic approach-only (70 eps truncated pre-grasp, zero grasp contamination) + full teleop (76) + moderate grasp clips (65; 17% of frames vs graspx2's 40%). Approach gets volume, grasp gets purity. Trained with drop_n_last_frames=63 (no padded windows at truncation cuts). | **EVAL'D: FAILED — erratic arm, worse than champion. Post-mortem: lost 42% of champion's volume (kinesthetic back-half discarded), 3-way distribution fragmentation, k3 (champion=k2). Video-state alignment verified clean.** |
+
+New candidate v2:
+
+| model | dataset root (`yosubshin/…`) | tests | status |
+|---|---|---|---|
+| `dp_mix_grasppure2x_wristonly` | `so101_mix_grasppure2x_wristonly` | **champion minus ONE thing**: exact teleop2x recipe (kin k2 + teleop×2, ~90k frames) but kinesthetic episodes SPLIT into approach + post-grasp segments — only the close windows excised (kin gripper range in data: 45.6-100, zero table-grasp closes; 4 regrip segments excluded from training). Single-variable test of the grasp-conflict theory at full volume. | training on ripper (5000 steps) |
 
 2026-08-01 eval verdicts (rollouts): teleop2x = best APPROACH (volume) but
 bimodal near grasp (kinesthetic + teleop grasp distributions conflict, policy

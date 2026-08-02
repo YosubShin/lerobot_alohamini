@@ -27,7 +27,7 @@ python examples/alohamini/evaluate_so101.py \
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
 | `dp_teleop_solo_wristonly` | `so101_teleop_trim1x_wristonly` | teleop-solo vs teleop2x at matched cameras — does kinesthetic in the mix add anything? solo ≈ 2x → go pure-teleop | **staged: `dp_teleop_solo_wristonly_2000`** (val peak 0.0215 @2000) |
-| `dp_teleop_graspx2_wristonly` | `so101_teleop_graspx2_wristonly` | **teleop-ONLY + grasp-segment 2× oversampling** — 65 clip-episodes of [close−3 s .. close+2 s] appended (they point into the same video files; no re-encode); no kinesthetic at all | training on ripper (auto-started behind solo run) |
+| `dp_teleop_graspx2_wristonly` | `so101_teleop_graspx2_wristonly` | **teleop-ONLY + grasp-segment 2× oversampling** — 65 clip-episodes of [close−3 s .. close+2 s] appended (they point into the same video files; no re-encode); no kinesthetic at all | **staged: `dp_teleop_graspx2_wristonly_2000`** (val peak 0.0220 @2000) |
 
 Priority-0 hardware control (if still undone): replay a TELEOP episode with
 the block placed per its `videos_1080p/` clip. Partially superseded —

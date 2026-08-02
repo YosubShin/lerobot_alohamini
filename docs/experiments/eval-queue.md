@@ -26,13 +26,24 @@ python examples/alohamini/evaluate_so101.py \
 
 | model | dataset root (`yosubshin/…`) | tests | status |
 |---|---|---|---|
-| `dp_teleop_solo_wristonly` | `so101_teleop_trim1x_wristonly` | teleop-solo vs teleop2x at matched cameras — does kinesthetic in the mix add anything? solo ≈ 2x → go pure-teleop | **staged: `dp_teleop_solo_wristonly_2000`** (val peak 0.0215 @2000) |
-| `dp_teleop_graspx2_wristonly` | `so101_teleop_graspx2_wristonly` | **teleop-ONLY + grasp-segment 2× oversampling** — 65 clip-episodes of [close−3 s .. close+2 s] appended (they point into the same video files; no re-encode); no kinesthetic at all | **staged: `dp_teleop_graspx2_wristonly_2000`** (val peak 0.0220 @2000) |
+| `dp_teleop_solo_wristonly` | `so101_teleop_trim1x_wristonly` | teleop-solo vs teleop2x at matched cameras — does kinesthetic in the mix add anything? solo ≈ 2x → go pure-teleop | **EVAL'D: most decisive grasp behavior — block between jaws several times. Best near-grasp model.** |
+| `dp_teleop_graspx2_wristonly` | `so101_teleop_graspx2_wristonly` | **teleop-ONLY + grasp-segment 2× oversampling** — 65 clip-episodes of [close−3 s .. close+2 s] appended (they point into the same video files; no re-encode); no kinesthetic at all | **EVAL'D: FAILED — random wandering during approach. Grasp-clip share (40% of frames) starved/distorted the approach distribution.** |
 
 Priority-0 hardware control (if still undone): replay a TELEOP episode with
 the block placed per its `videos_1080p/` clip. Partially superseded —
 teleop2x's grasps prove the tolerance is achievable — but replay still
 bounds the open-loop share of remaining misses.
+
+New candidate:
+
+| model | dataset root (`yosubshin/…`) | tests | status |
+|---|---|---|---|
+| `dp_mix_phasesplit_wristonly` | `so101_mix_phasesplit_wristonly` | **phase-split composition**: kinesthetic approach-only (70 eps truncated pre-grasp, zero grasp contamination) + full teleop (76) + moderate grasp clips (65; 17% of frames vs graspx2's 40%). Approach gets volume, grasp gets purity. Trained with drop_n_last_frames=63 (no padded windows at truncation cuts). | training on ripper |
+
+2026-08-01 eval verdicts (rollouts): teleop2x = best APPROACH (volume) but
+bimodal near grasp (kinesthetic + teleop grasp distributions conflict, policy
+alternates per chunk); teleop-solo = most DECISIVE grasp; graspx2 = approach
+broken (over-weighted grasp clips). Phase-split is the synthesis.
 
 ## Probes on whichever model grasps best
 - deeper squeeze (`--gripper_close_bias`) only if grasps hold then slip on lift

@@ -20,7 +20,9 @@ Requires: pip install 'lerobot[training]'  (includes dataset + accelerate + wand
 
 import dataclasses
 import logging
+import os
 import time
+from pathlib import Path
 from contextlib import nullcontext
 from pprint import pformat
 from typing import TYPE_CHECKING, Any
@@ -525,6 +527,16 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
             f"Start offline training on a fixed dataset, with effective batch size: {effective_batch_size}"
         )
 
+    # Weight EMA (original Diffusion Policy trainer feature): enable with
+    # LEROBOT_EMA=1. Shadow copy of parameters, DP-paper decay schedule
+    # (1 - (1+t)^-0.75, capped 0.9999); each checkpoint also saves an
+    # <dir>_ema sibling with the averaged weights.
+    ema_params = None
+    if os.environ.get("LEROBOT_EMA") == "1" and is_main_process:
+        _unwrapped = accelerator.unwrap_model(policy)
+        ema_params = {n: p.detach().clone() for n, p in _unwrapped.named_parameters()}
+        logging.info("Weight EMA ENABLED (%d tensors, DP-paper power-0.75 schedule)", len(ema_params))
+
     for _ in range(step, cfg.steps):
         start_time = time.perf_counter()
         batch = next(dl_iter)
@@ -544,6 +556,12 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
             lr_scheduler=lr_scheduler,
             sample_weighter=sample_weighter,
         )
+
+        if ema_params is not None:
+            decay = min(0.9999, 1.0 - (1.0 + step) ** -0.75)
+            with torch.no_grad():
+                for n, p in accelerator.unwrap_model(policy).named_parameters():
+                    ema_params[n].mul_(decay).add_(p.detach(), alpha=1.0 - decay)
 
         # Note: eval and checkpoint happens *after* the `step`th training update has completed, so we
         # increment `step` here.
@@ -593,6 +611,28 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
                     batch_size=cfg.batch_size,
                 )
                 update_last_checkpoint(checkpoint_dir)
+                if ema_params is not None:
+                    unwrapped = accelerator.unwrap_model(policy)
+                    raw = {n: p.detach().clone() for n, p in unwrapped.named_parameters()}
+                    with torch.no_grad():
+                        for n, p in unwrapped.named_parameters():
+                            p.copy_(ema_params[n])
+                    save_checkpoint(
+                        checkpoint_dir=Path(str(checkpoint_dir) + "_ema"),
+                        step=step,
+                        cfg=cfg,
+                        policy=unwrapped,
+                        optimizer=optimizer,
+                        scheduler=lr_scheduler,
+                        preprocessor=preprocessor,
+                        postprocessor=postprocessor,
+                        num_processes=accelerator.num_processes,
+                        batch_size=cfg.batch_size,
+                    )
+                    with torch.no_grad():
+                        for n, p in unwrapped.named_parameters():
+                            p.copy_(raw[n])
+                    logging.info("EMA checkpoint saved: %s_ema", checkpoint_dir)
                 if wandb_logger:
                     wandb_logger.log_policy(checkpoint_dir)
 

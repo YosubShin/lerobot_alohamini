@@ -46,6 +46,12 @@ New candidate v2:
 |---|---|---|---|
 | `dp_mix_grasppure2x_wristonly` | `so101_mix_grasppure2x_wristonly` | **champion minus ONE thing**: exact teleop2x recipe (kin k2 + teleop×2, ~90k frames) but kinesthetic episodes SPLIT into approach + post-grasp segments — only the close windows excised (kin gripper range in data: 45.6-100, zero table-grasp closes; 4 regrip segments excluded from training). Single-variable test of the grasp-conflict theory at full volume. | **staged: `dp_mix_grasppure2x_wristonly_3000`** (val peak 0.0212 @3000 — same peak step as champion, consistent with matched volume) |
 
+New candidate v3:
+
+| model | dataset root (`yosubshin/…`) | tests | status |
+|---|---|---|---|
+| `dp_mix_grasppure2x_wide_wristonly` | `so101_mix_grasppure2x_wide_wristonly` | v2 with the excision widened to 2.5 s before each kinesthetic close — near-block endgame is teleop-only (v2 eval: approach smooth, residual grasp bimodality in the uncovered 0.5 s zone) | **staged: `dp_mix_grasppure2x_wide_wristonly_1500`** (val peak 0.0238 @1500) |
+
 2026-08-01 eval verdicts (rollouts): teleop2x = best APPROACH (volume) but
 bimodal near grasp (kinesthetic + teleop grasp distributions conflict, policy
 alternates per chunk); teleop-solo = most DECISIVE grasp; graspx2 = approach

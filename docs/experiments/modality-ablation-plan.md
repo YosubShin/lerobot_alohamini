@@ -57,6 +57,55 @@ and what failure quirks does each carry?
 - Rough collection budget: kinesthetic ~2 h, teleop ~2.5–3 h,
   UMI ~1.5–2 h + SLAM post-processing. Plan ≥ 3 sessions; interleave.
 
+## Findings — modality verdict (2026-08-01)
+
+**Headline: what matters in demonstration data is whether the demonstrator
+experienced the plant the policy will control.**
+
+Evidence chain (all rollouts on the real robot, fps15/interp2):
+
+1. Both single-modality wrist-only models (76 eps each) reached, transported,
+   and placed, but failed the GRASP (~1-2 successes per 100+ tries).
+2. Trace forensics: gripper commands mode-averaged into a 60-70 hover — the
+   mean of the open (100) and close (kinesthetic ~52 / teleop ~30) modes —
+   which is also proprioceptively identical to "holding the block", driving
+   descend-lift oscillation (reversals uniform across the replan grid, i.e.
+   NOT chunk-boundary averaging).
+3. `deepgrip` (kinesthetic close deepened in-data to teleop semantics):
+   **no improvement** → gripper label semantics were not the constraint.
+4. `teleop2x` (teleop episodes duplicated in the mix): **~20× grasp-rate
+   jump** (several grasps in <10 tries).
+5. Commitment crutches (`--gripper_binarize`, n_action_steps 20) helped only
+   the conflicted models and HURT teleop2x — its careful descend-and-feel
+   with micro-adjustments is the learned skill, not hesitation.
+
+Interpretation: hand-guided (kinesthetic) demos bypass the arm's backlash —
+the demonstrator's fingers never feel the slop, so the data contains no
+corrective micro-behavior. Teleop demos are produced THROUGH the real plant
+(leader quantization, follower backlash, visual feedback), so the operator's
+compensations are recorded, and the policy needs exactly those at deploy.
+Corollaries:
+- No per-frame transform (k-shift, close-deepening, learned lag simulation)
+  can synthesize undemononstrated corrective behavior — those fixes are dead ends.
+- Kinesthetic data's remaining value: cheap non-contact coverage in a mix
+  (pending the teleop-solo control), and the UMI comparison baseline.
+- Hardware-quality argument (backlash vs Franka-class arms): real but
+  bounded — humans teleop the task at ~100% through the same hardware; the
+  slop narrows the tolerance funnel and raises the data requirement rather
+  than blocking the approach.
+
+UMI pre-registration (made before the rig exists): UMI shares kinesthetic's
+no-plant-in-loop flaw for the ARM (expect casual positioning) but not the
+GRIPPER (real fingers, real contact). Predicted mitigation: mix with teleop
+or deliberately careful final approaches in UMI demos.
+
+Next collection (~80-100 teleop eps, after teleop-solo + graspx2 evals lock
+the recipe): left-heavy (fix 27L/49R), grasp-dense, ~20-30% explicit
+recovery demos (miss → re-open → re-descend → succeed).
+
+Retired without rollout (superseded by the above): mix-k3, kinesthetic
+k0/k1 wrist-only (staged but unranked), kinesthetic-2cam+bias.
+
 ## Status
 
 - [x] Kinesthetic pilot QA'd (frozen-wrist eps excluded — pilot dataset)

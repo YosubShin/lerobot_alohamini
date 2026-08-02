@@ -1,71 +1,41 @@
-# Eval queue — staged models awaiting rollouts
+# Eval queue — active candidates
 
-*Maintained checklist. Fill the result column after each session; keep rows
-sorted by priority. All winners staged under `/mnt/nvme/lerobot/outputs/`.*
+*Maintained checklist. Finished/obsolete entries live in the findings log in
+`modality-ablation-plan.md`. All winners staged under `/mnt/nvme/lerobot/outputs/`.*
 
-Common flags (current best config):
+**Current best**: `dp_mix_teleop2x_3000` — several grasps in <10 tries
+(2026-08-01), vs 1-2 per 100+ historically. Deploy clean:
+`--fps 15 --interp_substeps 2 --n_action_steps 15`, **no** `--gripper_binarize`,
+no bias — the commitment crutches only helped conflicted models; careful
+closed-loop descent is the learned skill.
+
+Common flags:
 `--task_description "Put the red block into the bin" --num_episodes 5
---fps 15 --interp_substeps 2 --n_action_steps 20 --gripper_binarize`
+--fps 15 --interp_substeps 2 --n_action_steps 15`
 (remote_ip defaults to ethernet .17 — pass nothing)
 
 Template:
 ```bash
 python examples/alohamini/evaluate_so101.py \
-    --hf_model_id <MODEL>/pretrained_model \
+    --hf_model_id /mnt/nvme/lerobot/outputs/<MODEL>/pretrained_model \
     --train_dataset_root /mnt/nvme/lerobot/yosubshin/<DATASET> \
     <common flags>
 ```
 
-Priority 0 — hardware-tolerance control (5 min, do first): pick a TELEOP
-episode (its action stream already produced a successful grasp on this
-hardware; kinesthetic replay is confounded by the zero-squeeze gripper),
-match the block placement using its `videos_1080p/` clip, and
-`replay_so101.py --dataset local/so101_teleop_red_pick` that episode. Replay
-re-grasps reliably → hardware repeatability is inside task tolerance and the
-failures are policy/inference. Replay also misses → backlash/slop exceeds
-tolerance: tighten screws, grip-tape the block, favor one consistent
-approach direction in future demos.
+## Pending
 
-| pri | model (`/mnt/nvme/lerobot/outputs/…`) | dataset root (`yosubshin/…`) | tests | result |
-|---|---|---|---|---|
-| 1 | `dp_mix_deepgrip_2500` | `so101_mix_k2deep_teleop_wristonly` | kinesthetic gripper deepened IN DATA | **FAILED — no improvement (2026-08-01). Gripper semantics were not the binding constraint.** |
-| 2 | `dp_mix_teleop2x_3000` | `so101_mix_k2teleop2x_wristonly` | teleop episodes 2× weight | **WINNER (2026-08-01): several grasps in <10 tries vs 1-2 per 100+ historically. Best WITHOUT --gripper_binarize and at n_action_steps 15 — careful closed-loop descent is the learned skill, not hesitation.** |
-| 3 | `dp_mix_k2teleop_wristonly_3000` | `so101_mix_k2teleop_wristonly` | baseline 50/50 mix rerun WITH `--gripper_binarize` (n20 already confirmed helping without it) | |
-| 4 | `dp_fisheye_k0_wristonly_1500` | `so101_fisheye_trim1x_wristonly` | no lead compensation at all — does k hurt grasp commitment? (val 0.0204 is inflated: action≡state lets the model copy proprioception) | |
-| 5 | `dp_fisheye_k1_wristonly_1500` | `so101_fisheye_trim1x_k1_wristonly` | minimal lead | |
-| 6 | `dp_teleop_2cam_1500` | `so101_teleop_trim1x` | **STILL WORTH RUNNING (no binarize, n15): teleop-solo vs teleop2x decides whether kinesthetic adds anything — if solo ≈ 2x, go pure-teleop from here** | |
-| 7 | `dp_mix_k3teleop_wristonly_3000` | `so101_mix_k3teleop_wristonly` | k3 flavor of the mix (only if k2 mix underwhelms) | |
-| 8 | `dp_fisheye_trim1x_k2_20260731/checkpoints/001500` | `so101_fisheye_trim1x_k2` | kinesthetic solo two-cam + `--gripper_close_bias 12` (bias now fires only <45) | |
+| model | dataset root (`yosubshin/…`) | tests | status |
+|---|---|---|---|
+| `dp_teleop_solo_wristonly` | `so101_teleop_trim1x_wristonly` | teleop-solo vs teleop2x at matched cameras — does kinesthetic in the mix add anything? solo ≈ 2x → go pure-teleop | training on ripper (2026-08-01); staged here when done |
+| `dp_teleop_graspx2_wristonly` | `so101_teleop_graspx2_wristonly` | **teleop-ONLY + grasp-segment 2× oversampling** — 65 clip-episodes of [close−3 s .. close+2 s] appended (they point into the same video files; no re-encode); no kinesthetic at all | dataset built + verified locally; **training not yet launched** |
 
-Also worth one probe each, on whichever model grasps best:
-- `--n_action_steps 30` (even longer commitment; reaction latency tradeoff)
-- `--gripper_closed_cmd 20` (deeper squeeze if grasps hold but slip on lift)
-- no `--gripper_binarize` control run (isolate its contribution)
+Priority-0 hardware control (if still undone): replay a TELEOP episode with
+the block placed per its `videos_1080p/` clip. Partially superseded —
+teleop2x's grasps prove the tolerance is achievable — but replay still
+bounds the open-loop share of remaining misses.
 
-Notes / findings log:
-- 2026-07-31: n_action_steps 15→20 reduced descend-lift oscillation
-  (user-verified on mix_k2). Oscillation = state-image mode conflict,
-  gripper mode-averaged into 60-70 "holding" ambiguity zone; reversals
-  uniform across replan grid (not chunk-boundary averaging).
-- Physical adjunct still untried: grip tape on the block.
-
-## 2026-08-01 verdict + next phase
-
-Teleop2x's win + deepgrip's failure isolate the kinesthetic deficit: it is
-NOT gripper semantics or lag — hand-guiding bypasses the backlash, so the
-demos lack the closed-loop micro-corrections the real plant requires. No
-per-frame transform can synthesize undemononstrated behavior (learned lag
-model idea rejected on these grounds). Binarize/n20 helped only conflicted
-models; on teleop2x the careful descend-and-feel behavior IS the skill —
-run clean (n15, no binarize).
-
-Remaining evals: teleop-solo only (row 6). k0/k1/k3-mix superseded.
-
-Next collection (~80-100 teleop eps): left-heavy (fix 27L/49R),
-grasp-dense, ~20-30% explicit recovery demos (miss, re-open, re-descend,
-succeed) — retry behavior converts partial grasp rates into task success.
-
-UMI pre-registration: UMI shares kinesthetic's no-plant-in-loop flaw for
-the ARM (expect casual positioning) but not the GRIPPER (real fingers,
-real contact). Predicted mitigation: mix with teleop, or deliberately
-careful final approaches in UMI demos.
+## Probes on whichever model grasps best
+- deeper squeeze (`--gripper_close_bias`) only if grasps hold then slip on lift
+- `--n_action_steps 20/30` control runs (expect worse, per 2026-08-01 finding)
+- side-balance: grasp success split L vs R (teleop data skews 27L/49R)
+- grip tape on the block (still untried)

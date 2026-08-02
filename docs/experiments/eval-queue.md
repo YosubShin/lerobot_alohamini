@@ -28,12 +28,12 @@ approach direction in future demos.
 
 | pri | model (`/mnt/nvme/lerobot/outputs/…`) | dataset root (`yosubshin/…`) | tests | result |
 |---|---|---|---|---|
-| 1 | `dp_mix_deepgrip_2500` | `so101_mix_k2deep_teleop_wristonly` | kinesthetic gripper deepened IN DATA — removes the "close=52" mode entirely (root-cause fix for the 60-70 mode-average hover) | |
-| 2 | `dp_mix_teleop2x_3000` | `so101_mix_k2teleop2x_wristonly` | teleop episodes 2× weight — dilutes ambiguous kinesthetic modes (val peak 0.0186, best of any run) | |
+| 1 | `dp_mix_deepgrip_2500` | `so101_mix_k2deep_teleop_wristonly` | kinesthetic gripper deepened IN DATA | **FAILED — no improvement (2026-08-01). Gripper semantics were not the binding constraint.** |
+| 2 | `dp_mix_teleop2x_3000` | `so101_mix_k2teleop2x_wristonly` | teleop episodes 2× weight | **WINNER (2026-08-01): several grasps in <10 tries vs 1-2 per 100+ historically. Best WITHOUT --gripper_binarize and at n_action_steps 15 — careful closed-loop descent is the learned skill, not hesitation.** |
 | 3 | `dp_mix_k2teleop_wristonly_3000` | `so101_mix_k2teleop_wristonly` | baseline 50/50 mix rerun WITH `--gripper_binarize` (n20 already confirmed helping without it) | |
 | 4 | `dp_fisheye_k0_wristonly_1500` | `so101_fisheye_trim1x_wristonly` | no lead compensation at all — does k hurt grasp commitment? (val 0.0204 is inflated: action≡state lets the model copy proprioception) | |
 | 5 | `dp_fisheye_k1_wristonly_1500` | `so101_fisheye_trim1x_k1_wristonly` | minimal lead | |
-| 6 | `dp_teleop_2cam_1500` | `so101_teleop_trim1x` | teleop solo + binarize (its natural deep closes + decisive trigger) | |
+| 6 | `dp_teleop_2cam_1500` | `so101_teleop_trim1x` | **STILL WORTH RUNNING (no binarize, n15): teleop-solo vs teleop2x decides whether kinesthetic adds anything — if solo ≈ 2x, go pure-teleop from here** | |
 | 7 | `dp_mix_k3teleop_wristonly_3000` | `so101_mix_k3teleop_wristonly` | k3 flavor of the mix (only if k2 mix underwhelms) | |
 | 8 | `dp_fisheye_trim1x_k2_20260731/checkpoints/001500` | `so101_fisheye_trim1x_k2` | kinesthetic solo two-cam + `--gripper_close_bias 12` (bias now fires only <45) | |
 
@@ -48,3 +48,24 @@ Notes / findings log:
   gripper mode-averaged into 60-70 "holding" ambiguity zone; reversals
   uniform across replan grid (not chunk-boundary averaging).
 - Physical adjunct still untried: grip tape on the block.
+
+## 2026-08-01 verdict + next phase
+
+Teleop2x's win + deepgrip's failure isolate the kinesthetic deficit: it is
+NOT gripper semantics or lag — hand-guiding bypasses the backlash, so the
+demos lack the closed-loop micro-corrections the real plant requires. No
+per-frame transform can synthesize undemononstrated behavior (learned lag
+model idea rejected on these grounds). Binarize/n20 helped only conflicted
+models; on teleop2x the careful descend-and-feel behavior IS the skill —
+run clean (n15, no binarize).
+
+Remaining evals: teleop-solo only (row 6). k0/k1/k3-mix superseded.
+
+Next collection (~80-100 teleop eps): left-heavy (fix 27L/49R),
+grasp-dense, ~20-30% explicit recovery demos (miss, re-open, re-descend,
+succeed) — retry behavior converts partial grasp rates into task success.
+
+UMI pre-registration: UMI shares kinesthetic's no-plant-in-loop flaw for
+the ARM (expect casual positioning) but not the GRIPPER (real fingers,
+real contact). Predicted mitigation: mix with teleop, or deliberately
+careful final approaches in UMI demos.

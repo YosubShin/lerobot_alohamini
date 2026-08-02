@@ -76,3 +76,12 @@ Next phase (data frozen at so101_mix_k2teleop2x_wristonly):
    spline/basis action heads (requires eval-harness RTC rework).
 2. Parallel: collect ~80-100 more teleop eps (left-heavy, grasp-dense,
    ~25% recovery demos) — the confirmed data lever.
+
+## 2026-08-02 EMA result (data frozen at champion recipe)
+
+Weight EMA (LEROBOT_EMA=1, DP-paper schedule) beats raw at EVERY checkpoint
+on the shared val set. EMA@3000 = 0.0163, the project'''s best val loss
+(champion raw was 0.0186; same-recipe seed-rerun raw peaked 0.0179 — so EMA'''s
+gain exceeds seed variance). Staged: dp_teleop2x_EMA_3000 (primary),
+dp_teleop2x_rerun_3500 (seed-control). Next model-side experiment after
+rollout verdict: spline/basis action head (needs eval-harness RTC rework).

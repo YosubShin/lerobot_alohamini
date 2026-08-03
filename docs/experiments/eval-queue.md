@@ -89,3 +89,12 @@ rollout verdict: spline/basis action head (needs eval-harness RTC rework).
 **2026-08-02 ROLLOUT VERDICT: dp_teleop2x_EMA_3000 is the NEW CHAMPION —
 2/5 full task successes, failures are close calls.** First repeatable
 end-to-end policy. EMA is now a standard recipe ingredient (LEROBOT_EMA=1).
+
+**2026-08-02 crop-augmentation ablation: WASH.** EMA+crop(216x288) peak
+0.01625 vs EMA-only 0.01632 — 0.4%, an order below measured seed variance
+(~4%). Crop adds nothing at 240x320 alongside affine/jitter transforms;
+NOT added to the recipe. (crop EMA@3500 kept on ripper only.) Remaining
+architecture-lane candidates: GroupNorm+from-scratch encoder (tests the
+paper'''s BatchNorm-EMA warning), spline/basis head (parked, needs RTC
+harness rework). Recipe otherwise verified against Chi et al. reference:
+optimizer/scheduler/noise-process identical; horizon choices deliberate.

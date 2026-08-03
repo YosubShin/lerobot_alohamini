@@ -109,3 +109,22 @@ largest. Staged for rollout: `dp_teleop2x_EMAgn_4500` (dataset root
 **2026-08-03 ROLLOUT: dp_teleop2x_EMAgn_4500 is the NEW CHAMPION — easy
 scenarios (block near home) now succeed almost always. Night-and-day vs
 two days ago. GroupNorm+from-scratch is recipe-standard.**
+
+## 2026-08-03 grid eval of champion (dp_teleop2x_EMAgn_4500)
+
+right 3/5 (misses close or far-right) | center 2/5 (LYING-DOWN blocks
+always fail) | left 0/5 (one grasp, dropped in transport).
+Maps exactly to data: 27L/49R skew -> left dead; upright-only demos ->
+lying blocks OOD; thin far-right coverage; marginal grip in transport.
+
+## Targeted collection spec (~100 teleop eps, frozen recipe)
+
+- ~45 left placements (incl. far-left), ~25 center, ~20 right (bias far-right)
+- ~30% of episodes with the block LYING DOWN (all regions) — demonstrate the
+  side-grasp/reorient behavior; this is a new sub-skill, not just coverage
+- ~20-25% recovery demos: missed grasp -> re-open -> retry; PLUS mid-transport
+  drop -> re-approach -> re-grasp (observed failure mode)
+- firm trigger squeezes (transport-drop prevention), finish every place
+- after collection: retrain frozen recipe (teleop_new x2 + old mix? decide by
+  count — target >=230 effective episodes), EMA+GroupNorm+from-scratch,
+  5000 steps, eval same grid for before/after comparison

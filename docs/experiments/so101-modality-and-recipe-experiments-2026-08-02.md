@@ -145,5 +145,15 @@ Salvage variants rejected: approach-only mirroring = the mid-trajectory
 segmentation that failed 3x this week; moving the bin to centerline makes
 bin location bimodal across old+new data (known conflict class).
 
-Verdict: collect real left-side data. Revisit mirroring only on a
-symmetric-by-construction setup (centered bin, no chiral fiducials).
+Initial verdict: rejected. **OVERTURNED EMPIRICALLY 2026-08-03**: the
+user ran the experiment anyway — full recipe (EMA+GN+from-scratch),
+original+mirrored = 456 entries / 198k frames, pan & wrist_roll negated
+about normalized zero, videos hflipped (mirror pairs verified exact).
+Val: 0.0126 vs 0.0140 champion (original-side val only). **Rollout: LEFT
+placements 0/5 -> 3/5.** The predicted phantom-bin transport failure did
+not materialize — successful left transports show the policy follows the
+VISUAL bin cue over the mirrored trajectory prior; flipped AprilTags were
+harmless to the from-scratch encoder. Lesson recorded: analysis identified
+real risks but mispredicted their magnitude; a $0 empirical test beat the
+armchair verdict. Mirroring is now a STANDARD pipeline step (free 2x on
+all future collections on this rig).

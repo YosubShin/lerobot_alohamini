@@ -137,3 +137,8 @@ placements (0/5 baseline), (b) transport direction after left grasps (the
 phantom-bin failure mode predicted by the feasibility analysis). If left
 improves without transport confusion, mirroring = free 2x on all future
 data and the rejection analysis was too conservative.
+
+**2026-08-03 ROLLOUT: MIRROR AUGMENTATION VALIDATED — left 0/5 -> 3/5.**
+dp_teleop2x_EMAmirror_7500 is the new champion. Mirror step is now standard
+in the derivation pipeline (applies to the incoming v2 collection too:
+~100 new eps -> ~200 effective, x2 again with existing data).

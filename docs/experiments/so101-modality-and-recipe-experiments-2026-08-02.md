@@ -126,3 +126,24 @@ in training. Enable: `export LEROBOT_EMA=1`; eval the `<step>_ema` siblings.
   kinesthetic's no-plant-in-loop flaw for the ARM (expect casual
   positioning) but not the GRIPPER (real fingers, real contact). Predicted
   mitigation: mix with teleop / deliberately careful final approaches.
+
+## Appendix: mirror-augmentation feasibility (2026-08-03) — REJECTED for this rig
+
+Proposal: double left-right coverage by flipping wrist images + negating
+shoulder_pan and wrist_roll (about their MECHANICAL centers, not raw zero;
+lift/elbow/wrist_flex/gripper unchanged). Kinematics correct; precedent:
+PilotNet flip+steer-negate (driving), locomotion symmetry losses,
+Equivariant Diffusion Policy (Wang et al. CoRL 2024).
+
+Feasibility check on real frames:
+- Wrist camera: laterally centered (brightness column-center 0.498) — OK.
+- BIN: far off-axis (right-rear) — mirrored episodes deliver to a phantom
+  left bin. DISQUALIFYING for transport/place.
+- AprilTags across the table: chiral — flipped tags never occur at deploy.
+
+Salvage variants rejected: approach-only mirroring = the mid-trajectory
+segmentation that failed 3x this week; moving the bin to centerline makes
+bin location bimodal across old+new data (known conflict class).
+
+Verdict: collect real left-side data. Revisit mirroring only on a
+symmetric-by-construction setup (centered bin, no chiral fiducials).

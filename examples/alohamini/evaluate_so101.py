@@ -114,6 +114,13 @@ def parse_args() -> argparse.Namespace:
                    help="Cross-fade between consecutive action chunks (2-chunk temporal "
                         "ensemble). Smooths splice jumps at the cost of averaging modes; "
                         "felt worse at fps 10, untested at fps 30.")
+    p.add_argument("--obs_history_hz", type=int, default=0,
+                   help="Feed the policy's observation-history queue at this rate "
+                        "even when --fps is lower, by sampling extra observations "
+                        "at interp substep boundaries (host streams 30 Hz "
+                        "regardless). Restores the training-time 33 ms obs-pair "
+                        "spacing at fps15/substeps2: use --obs_history_hz 30. "
+                        "0 = off (history spaced at the control tick).")
     p.add_argument("--interp_substeps", type=int, default=1,
                    help="Stream N interpolated micro-commands per policy tick. At low --fps "
                         "the raw action staircase makes the servo dash between targets; e.g. "
@@ -453,12 +460,24 @@ def main() -> None:
                         last_sent[n] = cmd[n]
                 if args.interp_substeps > 1:
                     S = args.interp_substeps
+                    feed_mid = planner is not None and args.obs_history_hz > args.fps
                     for s in range(1, S + 1):
                         w = s / S
                         robot.send_action({n: prev[n] + w * (cmd[n] - prev[n])
                                            for n in state_names})
                         if s < S:
                             precise_sleep(interval / S)
+                            if feed_mid:
+                                # fresh 30 Hz frame exists on the stream; feed the
+                                # history queue only (no policy step) so replans
+                                # see training-native 33 ms obs pairs
+                                obs_m, _ = policy_obs()
+                                with torch.inference_mode():
+                                    o_m = prepare_observation_for_inference(
+                                        obs_m, torch.device(device),
+                                        args.task_description, robot.name)
+                                    o_m = preprocessor(o_m)
+                                planner._feed_obs(o_m)
                     # outer precise_sleep covers the final sub-interval
                 else:
                     robot.send_action(cmd)

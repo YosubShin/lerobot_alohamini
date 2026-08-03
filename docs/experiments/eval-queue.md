@@ -128,3 +128,12 @@ lying blocks OOD; thin far-right coverage; marginal grip in transport.
 - after collection: retrain frozen recipe (teleop_new x2 + old mix? decide by
   count — target >=230 effective episodes), EMA+GroupNorm+from-scratch,
   5000 steps, eval same grid for before/after comparison
+
+**2026-08-03 mirror-augmentation experiment (user-driven, overriding the
+analysis): val says YES — EMA 0.0126 @7500 vs champion 0.0140, on
+original-side val episodes.** Staged: dp_teleop2x_EMAmirror_7500 (dataset
+root so101_mix_k2teleop2x_mirror_wristonly). Rollout must test: (a) LEFT
+placements (0/5 baseline), (b) transport direction after left grasps (the
+phantom-bin failure mode predicted by the feasibility analysis). If left
+improves without transport confusion, mirroring = free 2x on all future
+data and the rejection analysis was too conservative.

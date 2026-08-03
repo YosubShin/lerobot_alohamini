@@ -142,3 +142,19 @@ data and the rejection analysis was too conservative.
 dp_teleop2x_EMAmirror_7500 is the new champion. Mirror step is now standard
 in the derivation pipeline (applies to the incoming v2 collection too:
 ~100 new eps -> ~200 effective, x2 again with existing data).
+
+**2026-08-03 full grid (mirror champion): left 3/5, center 3/5, right 2/5
+(total 8/15 vs 5/15) — remaining failures are corner cases: L/R edges,
+very far/near, lying-down blocks, slips.**
+
+## Recovery-demo protocol (v2 collection)
+
+STAGE the failure state; never perform the failure: set up post-failure
+scene by hand (block displaced ~2cm / escaped after partial close /
+dropped in transit zone), gripper empty nearby, THEN press Enter and
+record only the recovery (re-approach, re-grasp, deliver). Zero
+miss-frames enter the data — DAgger-style state coverage without teaching
+the mistake. Keep naturally-occurring in-line misses (organic corrections,
+rare, diluted). Do NOT perform deliberate fake-bad approaches from normal
+states. Corner-case placements (edges, very far/near, lying) remain the
+other collection priority.

@@ -99,7 +99,7 @@ in training. Enable: `export LEROBOT_EMA=1`; eval the `<step>_ema` siblings.
 - **Collection (highest value)**: ~80-100 teleop eps on the frozen recipe —
   left-heavy (27L/49R skew), grasp-dense, ~25% explicit recovery demos
   (miss → re-open → re-descend → succeed).
-- **Architecture lane**: GroupNorm CONFIRMED (now recipe-standard: --policy.use_group_norm=true --policy.pretrained_backbone_weights=null); 8000-step run finding the true peak; then
+- **Architecture lane**: GroupNorm CONFIRMED (now recipe-standard: --policy.use_group_norm=true --policy.pretrained_backbone_weights=null); 8000-step control confirms the peak plateaus at ~3500-5500 steps (0.0139, = 5k run within noise) — 5000-step budget stands; then
   spline/basis action head (parked — requires RTC-harness redesign).
 - **UMI pre-registration** (made before rig exists): UMI shares
   kinesthetic's no-plant-in-loop flaw for the ARM (expect casual

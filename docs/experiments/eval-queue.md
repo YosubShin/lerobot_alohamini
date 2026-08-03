@@ -105,3 +105,7 @@ BatchNorm-pretrained incumbent 0.0163 — the audit's last divergence was the
 largest. Staged for rollout: `dp_teleop2x_EMAgn_4500` (dataset root
 `so101_mix_k2teleop2x_wristonly`, usual flags). 8000-step version training
 (raw curve still descending at 5000).
+
+**2026-08-03 ROLLOUT: dp_teleop2x_EMAgn_4500 is the NEW CHAMPION — easy
+scenarios (block near home) now succeed almost always. Night-and-day vs
+two days ago. GroupNorm+from-scratch is recipe-standard.**

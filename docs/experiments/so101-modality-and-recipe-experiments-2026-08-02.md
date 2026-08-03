@@ -157,3 +157,15 @@ harmless to the from-scratch encoder. Lesson recorded: analysis identified
 real risks but mispredicted their magnitude; a $0 empirical test beat the
 armchair verdict. Mirroring is now a STANDARD pipeline step (free 2x on
 all future collections on this rig).
+
+## Appendix: obs-history rate at reduced deploy fps (2026-08-03) — tick-spacing is correct
+
+Hypothesis: at fps15 the 2-frame history is 66.7 ms apart vs 33.3 ms in
+training; feeding 30 Hz history (--obs_history_hz 30) should restore
+training perception geometry. **Robot result: definitively worse.**
+Mechanism (seen only in hindsight): the speed ladder is a uniform time
+reparameterization — at half speed, apparent motion per TICK-SPACED pair =
+0.5 (speed) x 2 (interval) = 1x training scale. The distortions cancel;
+tick-spaced history is the self-consistent choice. Un-stretching only the
+perception halves apparent motion and breaks the policy's velocity sense.
+Flag retained (default 0) as documentation.

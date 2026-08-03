@@ -115,12 +115,15 @@ def parse_args() -> argparse.Namespace:
                         "ensemble). Smooths splice jumps at the cost of averaging modes; "
                         "felt worse at fps 10, untested at fps 30.")
     p.add_argument("--obs_history_hz", type=int, default=0,
-                   help="Feed the policy's observation-history queue at this rate "
-                        "even when --fps is lower, by sampling extra observations "
-                        "at interp substep boundaries (host streams 30 Hz "
-                        "regardless). Restores the training-time 33 ms obs-pair "
-                        "spacing at fps15/substeps2: use --obs_history_hz 30. "
-                        "0 = off (history spaced at the control tick).")
+                   help="LEAVE AT 0 (tested 2026-08-03: definitively WORSE). "
+                        "Feeds obs history at this rate when --fps is lower. Seems "
+                        "like it should restore training-time 33 ms pair spacing, "
+                        "but tick-spacing is the SELF-CONSISTENT choice under the "
+                        "speed ladder: at fps15, half-speed motion x double "
+                        "interval = training-scale apparent motion per pair (the "
+                        "distortions cancel). 30 Hz history halves apparent "
+                        "motion -> policy misperceives velocity -> mistimed "
+                        "behavior. Kept for documentation.")
     p.add_argument("--interp_substeps", type=int, default=1,
                    help="Stream N interpolated micro-commands per policy tick. At low --fps "
                         "the raw action staircase makes the servo dash between targets; e.g. "

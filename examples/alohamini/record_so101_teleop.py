@@ -79,6 +79,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cam_width", type=int, default=320)
     p.add_argument("--cam_height", type=int, default=240)
     p.add_argument("--no_cameras", action="store_true")
+    p.add_argument("--cameras", type=str, default="forward,wrist",
+                   help="Comma list of host cameras to record (e.g. 'wrist' for "
+                        "wrist-only training data — forward is unused since the "
+                        "recipe went wrist-only)")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--push_to_hub", type=parse_bool, nargs="?", const=True, default=False)
     p.add_argument("--archive_dir", type=str, default="/mnt/nvme/lerobot/fisheye_archive")
@@ -205,10 +209,8 @@ def main() -> None:
 
     cam_shapes = {}
     if not args.no_cameras:
-        cam_shapes = {
-            "forward": (args.cam_height, args.cam_width, 3),
-            "wrist": (args.cam_height, args.cam_width, 3),
-        }
+        cam_shapes = {c.strip(): (args.cam_height, args.cam_width, 3)
+                      for c in args.cameras.split(",") if c.strip()}
     robot = SO101ZmqClient(SO101ZmqClientConfig(
         remote_ip=args.remote_ip, zmq_cmd_port=args.zmq_cmd_port,
         zmq_obs_port=args.zmq_obs_port, cameras=cam_shapes))

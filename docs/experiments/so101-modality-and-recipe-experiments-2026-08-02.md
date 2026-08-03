@@ -83,6 +83,23 @@ Two large silent divergences in LeRobot's DP port, both restored, both wins:
 | encoder | ResNet-18 from scratch + GroupNorm | ImageNet-pretrained + BatchNorm (deliberate, PR #3202) | **restored 08-02: −14% val (EMA 0.0140 vs 0.0163) — the paper's BatchNorm-vs-EMA warning was real, and from-scratch beats ImageNet pretraining even at 152 eps. Biggest single win after EMA itself.** |
 | optimizer/scheduler/noise | AdamW 1e-4 (0.95,0.999) / cosine+500 / DDPM-100 squaredcos ε | identical | ✓ |
 
+**Encoder-ablation confound (unresolved)**: the GroupNorm experiment
+necessarily changed TWO factors at once — (a) BatchNorm → GroupNorm and
+(b) ImageNet-pretrained → from-scratch initialization — because GroupNorm
+cannot be swapped into pretrained weights (they are calibrated against
+BN's statistics; the code refuses). The observed −14% val / near-always
+easy-scenario success is the JOINT effect; we cannot attribute it between:
+  1. GN removing the EMA-vs-BN-running-stats mismatch,
+  2. GN removing batch-composition noise and train/eval mode split,
+  3. from-scratch features being better suited than ImageNet's
+     (classification invariances + rectilinear prior vs our
+     fisheye/localization needs).
+The confound IS separable in one direction: a **BatchNorm + from-scratch**
+run (use_group_norm=false, pretrained_backbone_weights=null) is legal and
+would isolate the initialization factor from the normalization factor.
+Not yet run — recorded here so the claim "GroupNorm did it" is not
+over-stated in any write-up.
+
 **Port-divergence lesson**: ports translate model definitions faithfully but
 rewrite training harnesses — recipe details (EMA, augmentation, schedule
 constants) are the casualties. When adopting any ported policy, diff the

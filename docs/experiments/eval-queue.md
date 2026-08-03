@@ -172,3 +172,28 @@ python examples/alohamini/evaluate_so101.py \
   --train_dataset_root /mnt/nvme/lerobot/yosubshin/so101_grand_v2_mirror_wristonly \
   --task_description "Put the red block into the bin" \
   --num_episodes 5 --fps 15 --interp_substeps 2 --n_action_steps 15
+
+## 2026-08-03 grand-v2 grid: 7/15 (R 3/5, C 2/5, L 2/5) — slight regression
+with major qualitative wins and a diagnosed culprit.
+
+WINS: lying-down grasp works (new sub-skill); far/near pickups work (right);
+recovery behavior EXISTS (re-grasp attempts replace erratic flailing —
+staging protocol validated for covered states).
+
+REGRESSION: left approach shows left-right SHAKING (right smooth) ->
+hypothesis: mirror-center offset. If c_pan is off by delta, mirrored data
+is offset 2*delta (~5-10mm at reach); left = sparse-real (correct) +
+mirrored-right (offset) = two attractors -> oscillation. Right = abundant
+consistent real data -> smooth. Same delta explains far-edge failures
+(angular offset x max radius). DECISIVE TEST: no-mirror control (training)
+— if its left approach is smooth, theory confirmed.
+
+NEW FAILURE: knocked-over block -> policy pushes with half-closed gripper
+(state never staged). 
+
+Next session checklist:
+1. Eval no-mirror model, esp. left-approach smoothness.
+2. MEASURE mirror centers (30 s): arm dead-straight -> read shoulder_pan;
+   gripper level -> read wrist_roll. Rebuild mirrors about measured centers.
+3. Mini-collection (~25 eps): knocked-over recoveries (open-first, lift,
+   side re-approach) + far-edge anchors both sides.

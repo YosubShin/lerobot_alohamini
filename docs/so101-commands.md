@@ -197,6 +197,11 @@ lerobot-train \
     --wandb.enable=true --wandb.project=<project> --wandb.disable_artifact=true
 ```
 
+Weight EMA is recipe-standard since 2026-08-02 (`export LEROBOT_EMA=1`
+before `lerobot-train`; every checkpoint gains an `<step>_ema` sibling —
+eval those): +9% val over raw at every step, and produced the first
+repeatable policy (2/5 full successes).
+
 Non-negotiables learned the hard way: `image_transforms.enable=true` (off by
 default; ~12% better), `save_freq=500` (peak is ~2k steps / ~4 epochs — 5k
 checkpoints miss it), `wandb.disable_artifact=true` (default silently copies

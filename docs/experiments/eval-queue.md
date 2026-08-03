@@ -85,3 +85,7 @@ on the shared val set. EMA@3000 = 0.0163, the project'''s best val loss
 gain exceeds seed variance). Staged: dp_teleop2x_EMA_3000 (primary),
 dp_teleop2x_rerun_3500 (seed-control). Next model-side experiment after
 rollout verdict: spline/basis action head (needs eval-harness RTC rework).
+
+**2026-08-02 ROLLOUT VERDICT: dp_teleop2x_EMA_3000 is the NEW CHAMPION —
+2/5 full task successes, failures are close calls.** First repeatable
+end-to-end policy. EMA is now a standard recipe ingredient (LEROBOT_EMA=1).

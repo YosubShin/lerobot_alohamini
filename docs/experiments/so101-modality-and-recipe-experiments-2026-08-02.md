@@ -80,7 +80,7 @@ Two large silent divergences in LeRobot's DP port, both restored, both wins:
 | image augmentation | random crop primary | off by default | ~12% val (restored 07-29 via jitter/affine) |
 | random crop 90% | primary aug | `crop_shape: None` | tested 08-02: **wash** (0.4%) — jitter/affine covers it at 240×320 |
 | `drop_n_last_frames` | consistent w/ horizon | stale 7 after horizon 16→64 bump | we'd been correcting it unknowingly (31) |
-| encoder | ResNet-18 from scratch + GroupNorm | ImageNet-pretrained + BatchNorm (deliberate, PR #3202) | ablation running (BatchNorm+EMA interaction is the paper's stated reason for GroupNorm) |
+| encoder | ResNet-18 from scratch + GroupNorm | ImageNet-pretrained + BatchNorm (deliberate, PR #3202) | **restored 08-02: −14% val (EMA 0.0140 vs 0.0163) — the paper's BatchNorm-vs-EMA warning was real, and from-scratch beats ImageNet pretraining even at 152 eps. Biggest single win after EMA itself.** |
 | optimizer/scheduler/noise | AdamW 1e-4 (0.95,0.999) / cosine+500 / DDPM-100 squaredcos ε | identical | ✓ |
 
 **Port-divergence lesson**: ports translate model definitions faithfully but
@@ -99,7 +99,7 @@ in training. Enable: `export LEROBOT_EMA=1`; eval the `<step>_ema` siblings.
 - **Collection (highest value)**: ~80-100 teleop eps on the frozen recipe —
   left-heavy (27L/49R skew), grasp-dense, ~25% explicit recovery demos
   (miss → re-open → re-descend → succeed).
-- **Architecture lane**: GroupNorm/from-scratch ablation (running), then
+- **Architecture lane**: GroupNorm CONFIRMED (now recipe-standard: --policy.use_group_norm=true --policy.pretrained_backbone_weights=null); 8000-step run finding the true peak; then
   spline/basis action head (parked — requires RTC-harness redesign).
 - **UMI pre-registration** (made before rig exists): UMI shares
   kinesthetic's no-plant-in-loop flaw for the ARM (expect casual

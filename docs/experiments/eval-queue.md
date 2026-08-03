@@ -98,3 +98,10 @@ architecture-lane candidates: GroupNorm+from-scratch encoder (tests the
 paper'''s BatchNorm-EMA warning), spline/basis head (parked, needs RTC
 harness rework). Recipe otherwise verified against Chi et al. reference:
 optimizer/scheduler/noise-process identical; horizon choices deliberate.
+
+**2026-08-02 GroupNorm ablation: −14% val, new best.** From-scratch
+ResNet18+GroupNorm (reference-faithful) EMA peak 0.0140 @4500 vs
+BatchNorm-pretrained incumbent 0.0163 — the audit's last divergence was the
+largest. Staged for rollout: `dp_teleop2x_EMAgn_4500` (dataset root
+`so101_mix_k2teleop2x_wristonly`, usual flags). 8000-step version training
+(raw curve still descending at 5000).

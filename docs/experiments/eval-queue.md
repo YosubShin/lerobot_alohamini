@@ -158,3 +158,17 @@ the mistake. Keep naturally-occurring in-line misses (organic corrections,
 rare, diluted). Do NOT perform deliberate fake-bad approaches from normal
 states. Corner-case placements (edges, very far/near, lying) remain the
 other collection priority.
+
+**2026-08-03 GRAND V2 trained: dp_grand_v2_10500 — EMA 0.0111 @10500 (vs
+0.0126 mirror champion, on a harder val incl. corner/recovery eps).**
+Data: kin-k2 x1 + (teleop v1 + v2-corners + recoveries) x2, all mirrored =
+740 entries / 344k frames. Full recipe. AWAITING GRID EVAL vs 8/15
+baseline — watch corner cells (edges/far/near/lying) and first-ever
+recovery behavior after failed grasps.
+
+Eval:
+python examples/alohamini/evaluate_so101.py \
+  --hf_model_id /mnt/nvme/lerobot/outputs/dp_grand_v2_10500/pretrained_model \
+  --train_dataset_root /mnt/nvme/lerobot/yosubshin/so101_grand_v2_mirror_wristonly \
+  --task_description "Put the red block into the bin" \
+  --num_episodes 5 --fps 15 --interp_substeps 2 --n_action_steps 15

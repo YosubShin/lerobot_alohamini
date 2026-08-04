@@ -229,3 +229,11 @@ failures; open-lift fires -> dose theory holds, tune weight/collect more
 staged (incl. fail-forward: brief push then recover). Still pushes ->
 dose exonerated, velocity-signature gap confirmed -> build the DAgger
 takeover tool (policy drives, t=freeze, align leader, t=engage+record).
+
+**2026-08-04 ROLLOUT: v2d recovery WORKS — drops/slips followed by
+successful re-approach (vs prior random/shaky flailing). Dose theory held:
+recovery recipe = staged states + 20-frame lead-in + x4 weight.
+dp_grand_v2d_7000 is the new working base.** DAgger tool deprioritized to
+reserve (dose was the bottleneck, not state coverage). Remaining levers:
+full-grid number for v2d; fail-forward staged demos + more recovery variety
+at x4; real left/edge collection (mirror replacement).

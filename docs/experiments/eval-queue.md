@@ -237,3 +237,13 @@ dp_grand_v2d_7000 is the new working base.** DAgger tool deprioritized to
 reserve (dose was the bottleneck, not state coverage). Remaining levers:
 full-grid number for v2d; fail-forward staged demos + more recovery variety
 at x4; real left/edge collection (mirror replacement).
+
+**2026-08-04 v2d grid: 8/15 (R 2/5, C 4/5, L 2/5)** — same total as mirror
+champion, different shape: center strong, failures now PARTIAL recoveries
+(lift starts, truncates into pushing). ONE-CHUNK RECOVERY hypothesis: at
+n15 the recovery chunk executes ~1s; the half-lifted state visually
+matches a normal approach state (96% descend supervision) -> replan
+re-samples descend -> truncation. Zero-cost test: provoked failures with
+--n_action_steps 25 on same checkpoint. Data fix regardless: fail-forward
+demos supervise the mid-recovery ambiguous states. Next session: ~12
+fail-forward + ~40 left/edge/far-right/too-close eps -> retrain rec x4.

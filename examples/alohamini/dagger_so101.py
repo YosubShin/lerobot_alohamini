@@ -14,7 +14,7 @@ Per-round flow:
     - SPACE = take over (explicit trigger; the leader-follower offset at
       that instant is bled off over ~1 s so the follower never snaps) ->
       demonstrate the recovery -> ENTER saves the intervention (r discards)
-    - g = rollout SUCCEEDED: save the policy's own trajectory to the
+    - ENTER = rollout SUCCEEDED: save the policy's own trajectory to the
       --success_dataset (Sirius/RFT-style self-imitation, human-labeled)
     - s = end round, record nothing
   q quits the session (post-session 1080p extraction runs as usual).
@@ -217,7 +217,7 @@ def main() -> None:
     saved = 0
     n_success = 0
     print("\nSHADOWING DAGGER READY.")
-    print("  ENTER=start rollout | SPACE=take over | g=save as SUCCESS | s=end round")
+    print("  ENTER=start rollout, ENTER again=save as SUCCESS | SPACE=take over | s=end round")
     print("  after takeover: ENTER=save intervention  r=discard | q=quit\n", flush=True)
 
     try:
@@ -252,7 +252,7 @@ def main() -> None:
                 leader_shadow(j0)
                 precise_sleep(1.0 / args.fps)
             t_end = time.perf_counter() + args.rollout_time
-            print("Policy rolling — SPACE to take over, g if it succeeds…", flush=True)
+            print("Policy rolling — SPACE to take over, ENTER when it succeeds…", flush=True)
 
             while time.perf_counter() < t_end:
                 t0 = time.perf_counter()
@@ -264,7 +264,7 @@ def main() -> None:
                     if "s" in pressed:
                         print("Round ended (nothing recorded).", flush=True)
                         break
-                    if "g" in pressed:
+                    if "\r" in pressed or "\n" in pressed or "g" in pressed:
                         for fr in rollout_frames:
                             sdataset.add_frame(fr)
                         if sdataset.has_pending_frames():

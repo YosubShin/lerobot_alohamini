@@ -11,14 +11,13 @@ the leader is always aligned.
 
 Per-round flow:
   home -> place block -> ENTER -> policy rolls out, leader shadows
-    - policy finishes fine: press s (nothing recorded), next round
-    - failure starts: GRAB the leader and steer -> instant takeover ->
+    - SPACE = take over (explicit trigger; the leader-follower offset at
+      that instant is bled off over ~1 s so the follower never snaps) ->
       demonstrate the recovery -> ENTER saves the intervention (r discards)
+    - g = rollout SUCCEEDED: save the policy's own trajectory to the
+      --success_dataset (Sirius/RFT-style self-imitation, human-labeled)
+    - s = end round, record nothing
   q quits the session (post-session 1080p extraction runs as usual).
-
-Controls live on this terminal (Enter/s/r/q). Takeover trigger: deviation
-> --takeover_delta units on any joint for --takeover_ticks consecutive
-ticks (debounce against resting-hand weight).
 """
 from __future__ import annotations
 
@@ -77,14 +76,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_delta_per_tick", type=float, default=7.0)
     p.add_argument("--gripper_max_delta", type=float, default=20.0)
     # shadowing
-    p.add_argument("--takeover_delta", type=float, default=6.0,
-                   help="Units of leader-vs-follower deviation that trigger takeover")
-    p.add_argument("--takeover_ticks", type=int, default=2,
-                   help="Consecutive ticks above threshold (debounce)")
-    p.add_argument("--lag_allow", type=float, default=1.5,
-                   help="Extra deviation allowance per unit of follower joint "
-                        "velocity (units per unit/tick) — tracking lag trails "
-                        "motion proportionally; a grab exceeds this envelope")
+    p.add_argument("--success_dataset", type=str, default="",
+                   help="Where human-labeled successful policy rollouts go "
+                        "(default: <dagger_dataset>_success)")
+    p.add_argument("--handover_decay", type=float, default=0.85,
+                   help="Per-tick decay of the leader-follower offset captured at "
+                        "takeover (0.85 ~ 1 s bleed-off; prevents the snap)")
     p.add_argument("--leader_p", type=int, default=20,
                    help="Leader tracking P gain. P sets responsiveness, not max "
                         "torque — a hand overpowers the servo at any P, so track "
@@ -183,6 +180,19 @@ def main() -> None:
         print("Created dagger dataset:", args.dagger_dataset,
               f"(NOTE: recorded at {args.fps} fps — the deploy tick)")
 
+    success_repo = args.success_dataset or (args.dagger_dataset + "_success")
+    sroot = HF_LEROBOT_HOME / success_repo
+    if sroot.exists():
+        sdataset = LeRobotDataset.resume(repo_id=success_repo, root=sroot,
+                                         image_writer_threads=4)
+        print("Resuming success dataset:", success_repo)
+    else:
+        sdataset = LeRobotDataset.create(repo_id=success_repo, fps=args.fps,
+                                         features={**action_features, **obs_features},
+                                         robot_type=robot.name, use_videos=True,
+                                         image_writer_threads=4)
+        print("Created success dataset:", success_repo)
+
     reset_pose = median_first_frame_state(str(root), state_names, set())
 
     def policy_obs():
@@ -205,17 +215,17 @@ def main() -> None:
     kb.start()
     interval = 1.0 / args.fps
     saved = 0
+    n_success = 0
     print("\nSHADOWING DAGGER READY.")
-    print("  Per round: ENTER=start policy rollout | s=end round (no record)")
-    print("  GRAB THE LEADER to take over; then ENTER=save intervention, r=discard")
-    print("  q=quit session\n", flush=True)
+    print("  ENTER=start rollout | SPACE=take over | g=save as SUCCESS | s=end round")
+    print("  after takeover: ENTER=save intervention  r=discard | q=quit\n", flush=True)
 
     try:
         while True:
             robot.enable_torque()
             ramp_to(reset_pose, args.home_seconds)
             kb.clear()
-            print(f"\n[{saved} interventions saved]  Place the block, ENTER to roll out (q=quit)…",
+            print(f"\n[{saved} interventions, {n_success} successes]  Place the block, ENTER to roll out (q=quit)…",
                   flush=True)
             while True:
                 pressed = kb.get_pressed()
@@ -235,22 +245,14 @@ def main() -> None:
             postprocessor.reset()
             _, _, last_sent = policy_obs()
             mode = "policy"
-            dev_count = 0
-            # Baseline phase: let the soft leader settle onto the follower pose,
-            # then record per-joint offsets (gravity sag + calibration deltas).
-            # Trigger fires on deviation CHANGE from this baseline, so sag never
-            # false-triggers and soft gains stay soft.
-            print("Settling leader (baseline)…", flush=True)
-            for _ in range(10):
+            handover_offset = None
+            rollout_frames = []   # policy trajectory buffer (kept only on 'g')
+            for _ in range(6):    # let the leader settle onto the follower
                 _, _, j0 = policy_obs()
                 leader_shadow(j0)
                 precise_sleep(1.0 / args.fps)
-            _, _, j0 = policy_obs()
-            baseline = leader_offsets(j0)
-            prev_joints = dict(j0)
             t_end = time.perf_counter() + args.rollout_time
-            last_dbg = time.perf_counter()
-            print("Policy rolling — hands on the leader…", flush=True)
+            print("Policy rolling — SPACE to take over, g if it succeeds…", flush=True)
 
             while time.perf_counter() < t_end:
                 t0 = time.perf_counter()
@@ -260,37 +262,27 @@ def main() -> None:
                     return
                 if mode == "policy":
                     if "s" in pressed:
-                        print("Round ended (no takeover).", flush=True)
+                        print("Round ended (nothing recorded).", flush=True)
                         break
-                    # shadow + trigger detection BEFORE acting
+                    if "g" in pressed:
+                        for fr in rollout_frames:
+                            sdataset.add_frame(fr)
+                        if sdataset.has_pending_frames():
+                            sdataset.save_episode()
+                            _log_episode_wallclock(sdataset, time.time(), time.time())
+                            n_success += 1
+                            print(f"SUCCESS rollout saved ({n_success} total).", flush=True)
+                        break
                     leader_shadow(joints)
-                    off = leader_offsets(joints)
-                    # velocity-compensated: tracking lag trails follower motion
-                    # proportionally; only deviation beyond the lag envelope
-                    # counts as operator intent
-                    dev = max(
-                        abs(off[n] - baseline[n])
-                        - args.lag_allow * abs(joints[n] - prev_joints[n])
-                        for n in ARM)
-                    prev_joints = dict(joints)
-                    if dev > args.takeover_delta:
-                        dev_count += 1
-                    else:
-                        dev_count = 0
-                        # slow EMA absorbs pose-dependent sag drift (~3 s time
-                        # constant — far slower than a deliberate grab)
-                        for n in ARM:
-                            baseline[n] += 0.02 * (off[n] - baseline[n])
-                    if time.perf_counter() - last_dbg > 2.0:
-                        print(f"  [dev {dev:4.1f}u / trigger {args.takeover_delta}]",
-                              flush=True)
-                        last_dbg = time.perf_counter()
-                    if dev_count >= args.takeover_ticks:
+                    if " " in pressed:
                         leader.bus.disable_torque()   # leader instantly passive
+                        # capture the leader-follower mismatch at this instant and
+                        # bleed it off — the follower must NOT snap to the leader
+                        lp = leader.get_action()
+                        handover_offset = {n: lp[n] - joints[n] for n in state_names}
                         mode = "takeover"
-                        print(f"\n>>> TAKEOVER (dev {dev:.1f}u) — YOU have control, "
-                              f"leader is limp. Recover, then ENTER=save r=discard",
-                              flush=True)
+                        print("\n>>> TAKEOVER — you have control (offset bleeding off). "
+                              "Recover, then ENTER=save r=discard", flush=True)
                         continue
                     with torch.inference_mode():
                         o = prepare_observation_for_inference(
@@ -313,6 +305,9 @@ def main() -> None:
                                 precise_sleep(interval / S)
                     else:
                         robot.send_action(cmd)
+                    oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
+                    aframe = build_dataset_frame(dataset.features, cmd, prefix=ACTION)
+                    rollout_frames.append({**oframe, **aframe, "task": args.task_description})
                 else:  # takeover: teleop + record
                     if "\r" in pressed or "\n" in pressed:
                         if dataset.has_pending_frames():
@@ -325,7 +320,10 @@ def main() -> None:
                         dataset.clear_episode_buffer()
                         print("Intervention discarded.", flush=True)
                         break
-                    act = leader.get_action()
+                    lp = leader.get_action()
+                    act = {n: lp[n] - handover_offset[n] for n in state_names}
+                    for n in state_names:
+                        handover_offset[n] *= args.handover_decay
                     robot.send_action(act)
                     oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
                     aframe = build_dataset_frame(dataset.features, act, prefix=ACTION)
@@ -352,7 +350,12 @@ def main() -> None:
         except Exception:
             pass
         dataset.finalize()
-        print(f"\nSession done: {saved} interventions in {args.dagger_dataset}")
+        try:
+            sdataset.finalize()
+        except Exception:
+            pass
+        print(f"\nSession done: {saved} interventions in {args.dagger_dataset}, "
+              f"{n_success} successes in {success_repo}")
         if saved and not args.no_extract_1080p:
             _extract_session_1080p(args, dataset.root)
 

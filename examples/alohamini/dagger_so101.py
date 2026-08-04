@@ -81,8 +81,15 @@ def parse_args() -> argparse.Namespace:
                    help="Units of leader-vs-follower deviation that trigger takeover")
     p.add_argument("--takeover_ticks", type=int, default=2,
                    help="Consecutive ticks above threshold (debounce)")
-    p.add_argument("--leader_p", type=int, default=8,
-                   help="Leader tracking P gain — soft, so deviating is fingertip force")
+    p.add_argument("--lag_allow", type=float, default=1.5,
+                   help="Extra deviation allowance per unit of follower joint "
+                        "velocity (units per unit/tick) — tracking lag trails "
+                        "motion proportionally; a grab exceeds this envelope")
+    p.add_argument("--leader_p", type=int, default=20,
+                   help="Leader tracking P gain. P sets responsiveness, not max "
+                        "torque — a hand overpowers the servo at any P, so track "
+                        "firmly (20) rather than softly (8, which lags motion and "
+                        "sags under gravity)")
     p.add_argument("--leader_d", type=int, default=16)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--archive_dir", type=str, default="/mnt/nvme/lerobot/fisheye_archive")
@@ -240,6 +247,7 @@ def main() -> None:
                 precise_sleep(1.0 / args.fps)
             _, _, j0 = policy_obs()
             baseline = leader_offsets(j0)
+            prev_joints = dict(j0)
             t_end = time.perf_counter() + args.rollout_time
             last_dbg = time.perf_counter()
             print("Policy rolling — hands on the leader…", flush=True)
@@ -257,7 +265,14 @@ def main() -> None:
                     # shadow + trigger detection BEFORE acting
                     leader_shadow(joints)
                     off = leader_offsets(joints)
-                    dev = max(abs(off[n] - baseline[n]) for n in ARM)
+                    # velocity-compensated: tracking lag trails follower motion
+                    # proportionally; only deviation beyond the lag envelope
+                    # counts as operator intent
+                    dev = max(
+                        abs(off[n] - baseline[n])
+                        - args.lag_allow * abs(joints[n] - prev_joints[n])
+                        for n in ARM)
+                    prev_joints = dict(joints)
                     if dev > args.takeover_delta:
                         dev_count += 1
                     else:

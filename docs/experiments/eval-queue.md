@@ -207,3 +207,12 @@ Twin rollout protocol: same placements on both models —
 distance ~ 2*delta (ruler measurement -> exact mirror correction);
 (3) any shakiness in mirror-only (zero data conflict by construction) =
 transform-level inconsistency (camera plane / image geometry).
+
+**2026-08-03 recovery lead-in dose ladder** (stationary failure-state frames
+KEPT per episode): trim=5 -> recovery too weak (pushing); keeplead=all
+(~41-88) -> freeze-mode regression on NORMAL cases (v2b, user-reported —
+stationary near-block states alias mid-grasp states); lead20=20 -> v2c,
+staged as dp_grand_v2c_6500 (EMA 0.0120). Eval v2c on: (1) normal cases
+(regression gone?), (2) knocked-over recovery (open-first?). Note:
+mirror-only diagnostic model carries keeplead — discount any near-block
+hesitation in its rollouts; its lateral-bias readout is still valid.

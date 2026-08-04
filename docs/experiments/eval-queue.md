@@ -197,3 +197,13 @@ Next session checklist:
    gripper level -> read wrist_roll. Rebuild mirrors about measured centers.
 3. Mini-collection (~25 eps): knocked-over recoveries (open-first, lift,
    side re-approach) + far-edge anchors both sides.
+
+**2026-08-03 mirror-only diagnostic staged: dp_grand_v2b_mirroronly_6500**
+(EMA 0.0120 — identical to its all-original twin dp_grand_v2b_6000 at
+0.0119: mirrored data equally learnable, no gross transform inconsistency).
+Twin rollout protocol: same placements on both models —
+(1) competence map should swap sides cleanly;
+(2) consistent lateral grasp bias in mirror-only = center offset, miss
+distance ~ 2*delta (ruler measurement -> exact mirror correction);
+(3) any shakiness in mirror-only (zero data conflict by construction) =
+transform-level inconsistency (camera plane / image geometry).

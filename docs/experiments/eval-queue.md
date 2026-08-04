@@ -270,3 +270,16 @@ keeps only [failure-settle : end] via block-blob tracking (validated:
 dynamics enter the data, the causing actions do not. Fan coverage: vary
 where the block ends up. Include diagonal-orientation placements in the
 same session. Then retrain rec x4, eval grid at n10.
+
+**2026-08-04 staged: dp_grand_v2e_9000** (EMA 0.0120 @9000) — first full
+DAgger-flywheel model: v2d recipe + 30 interventions x4 (upsampled
+15->30 fps, untrimmed) + 14 successes x1. Grid eval at n10; key question:
+do policy-native corrections complete the open-lift-regrasp where staged
+data plateaued?
+
+Eval:
+python examples/alohamini/evaluate_so101.py \
+  --hf_model_id /mnt/nvme/lerobot/outputs/dp_grand_v2e_9000/pretrained_model \
+  --train_dataset_root /mnt/nvme/lerobot/yosubshin/so101_grand_v2e_dagger_wristonly \
+  --task_description "Put the red block into the bin" \
+  --num_episodes 5 --fps 15 --interp_substeps 2 --n_action_steps 10

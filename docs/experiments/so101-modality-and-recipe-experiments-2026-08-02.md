@@ -169,3 +169,26 @@ reparameterization — at half speed, apparent motion per TICK-SPACED pair =
 tick-spaced history is the self-consistent choice. Un-stretching only the
 perception halves apparent motion and breaks the policy's velocity sense.
 Flag retained (default 0) as documentation.
+
+## Mirror augmentation: final verdict (2026-08-03) — RETIRED, mechanism identified
+
+Full arc: analytically rejected (off-axis bin) -> empirically validated
+(left 0/5 -> 3/5 when left data didn't exist) -> regression once real left
+data arrived (left-approach shaking = mirrored-vs-real conflict) ->
+mirror-ONLY diagnostic model isolated the flaw: outward lateral bias
+growing with eccentricity (reaches too far left for left targets, too far
+right for right). That signature is a GAIN error, not a center offset ->
+the image flip, not the joint negation: hflip about the pixel centerline
+is only valid if the fisheye optical center sits on it; lens-center offset
+makes the flipped distortion field pair joints with a subtly wrong world,
+worst at the periphery. Consistent with every observation (mixed-model
+shaking, far-edge failures, mirror-only smooth-but-biased).
+
+Retired because: proper fix = fisheye optical-center calibration +
+undistort/flip/redistort (hours), while real left data now exists and
+collects at ~50 eps/hr. Approximate mirror > no data, but < real data,
+and it fights real data. Revisit only with a calibrated camera model.
+
+Meta-lesson: the mirror-only "amplify the suspect" diagnostic (user's
+design) converted an ambiguous behavioral hunch into a readable mechanism
+in one training run.

@@ -216,3 +216,9 @@ staged as dp_grand_v2c_6500 (EMA 0.0120). Eval v2c on: (1) normal cases
 (regression gone?), (2) knocked-over recovery (open-first?). Note:
 mirror-only diagnostic model carries keeplead — discount any near-block
 hesitation in its rollouts; its lateral-bias readout is still valid.
+
+**2026-08-03 MIRROR RETIRED** (mirror-only eval: outward eccentricity-growing
+bias = fisheye flip about pixel centerline invalid off-axis; see experiments
+doc). Path forward: v2c (no-mirror, lead20 recovery) as base; next
+collection = real left/edge episodes. Mirror-only + mirrored datasets kept
+for the record; mirror step removed from the standard pipeline.

@@ -222,3 +222,10 @@ bias = fisheye flip about pixel centerline invalid off-axis; see experiments
 doc). Path forward: v2c (no-mirror, lead20 recovery) as base; next
 collection = real left/edge episodes. Mirror-only + mirrored datasets kept
 for the record; mirror step removed from the standard pipeline.
+
+**2026-08-04 staged: dp_grand_v2d_7000** (EMA 0.0119) — recovery x4
+(80 entries, ~4% of frames), sole change vs v2c. Eval: provoke pushing
+failures; open-lift fires -> dose theory holds, tune weight/collect more
+staged (incl. fail-forward: brief push then recover). Still pushes ->
+dose exonerated, velocity-signature gap confirmed -> build the DAgger
+takeover tool (policy drives, t=freeze, align leader, t=engage+record).

@@ -425,6 +425,11 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
             sampler_to,
             episode_indices_to_use=sampler_episodes,
             drop_n_last_frames=getattr(active_cfg, "drop_n_last_frames", 0),
+            # LEROBOT_DROP_N_FIRST=2: skip window STARTS on the first N frames of
+            # every episode — used with DAgger intervention episodes that prepend
+            # pre-takeover context frames (observation history only; their stored
+            # policy actions must never be supervised)
+            drop_n_first_frames=int(os.environ.get("LEROBOT_DROP_N_FIRST", "0")),
             shuffle=True,
             seed=cfg.seed if cfg.seed is not None else 0,
         )

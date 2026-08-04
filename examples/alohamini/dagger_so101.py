@@ -246,7 +246,12 @@ def main() -> None:
             _, _, last_sent = policy_obs()
             mode = "policy"
             handover_offset = None
-            rollout_frames = []   # policy trajectory buffer (kept only on 'g')
+            rollout_frames = []   # policy trajectory buffer (kept only on ENTER)
+            prebuf = []           # last 2 policy-mode frames; prepended at takeover
+                                  # so intervention episodes carry the DYNAMIC
+                                  # failure observation history (train with
+                                  # LEROBOT_DROP_N_FIRST=2: obs context only,
+                                  # stored policy actions never supervised)
             for _ in range(6):    # let the leader settle onto the follower
                 _, _, j0 = policy_obs()
                 leader_shadow(j0)
@@ -281,6 +286,8 @@ def main() -> None:
                         lp = leader.get_action()
                         handover_offset = {n: lp[n] - joints[n] for n in state_names}
                         mode = "takeover"
+                        for fr in prebuf:   # dynamic pre-takeover context frames
+                            dataset.add_frame(dict(fr))
                         print("\n>>> TAKEOVER — you have control (offset bleeding off). "
                               "Recover, then ENTER=save r=discard", flush=True)
                         continue
@@ -307,7 +314,11 @@ def main() -> None:
                         robot.send_action(cmd)
                     oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
                     aframe = build_dataset_frame(dataset.features, cmd, prefix=ACTION)
-                    rollout_frames.append({**oframe, **aframe, "task": args.task_description})
+                    fr = {**oframe, **aframe, "task": args.task_description}
+                    rollout_frames.append(fr)
+                    prebuf.append(fr)
+                    if len(prebuf) > 2:
+                        prebuf.pop(0)
                 else:  # takeover: teleop + record
                     if "\r" in pressed or "\n" in pressed:
                         if dataset.has_pending_frames():

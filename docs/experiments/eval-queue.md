@@ -247,3 +247,26 @@ re-samples descend -> truncation. Zero-cost test: provoked failures with
 --n_action_steps 25 on same checkpoint. Data fix regardless: fail-forward
 demos supervise the mid-recovery ambiguous states. Next session: ~12
 fail-forward + ~40 left/edge/far-right/too-close eps -> retrain rec x4.
+
+## 2026-08-04 n-steps sweep + recovery synthesis
+
+- v2d grid at n10: R 3/5, C 2/5, L 3/5. **n_action_steps 10 is the new
+  deploy default** (finer closed-loop correction at contact -> better grasp
+  accuracy). n25 fails even easy scenes — the apparent recovery lift was
+  the PRE-failure chunk plan executing open-loop, not recovery.
+- Recovery diagnosis (user): recovery is a FAN (arbitrary block-gripper
+  pose after failure), approach is a FUNNEL (converging from home) —
+  20/200 recovery episodes is inverted vs state diversity. Universal
+  failure: pushes or partial open/close beside block instead of full-open
+  + re-angle + re-grasp. Also: hover on DIAGONAL blocks (orientation gap).
+
+## Dynamic-failure collection protocol (next session, ~30 eps)
+
+Teleop the failure FOR REAL (varied: off-center pinch, tip-over, edge
+clip), **pause ~0.5 s after the block escapes**, then demonstrate full
+recovery (full open -> re-angle -> grasp -> deliver). Post-hoc auto-cut
+keeps only [failure-settle : end] via block-blob tracking (validated:
+~100% blob lock; protocol pause makes the cut trivial) — real failure
+dynamics enter the data, the causing actions do not. Fan coverage: vary
+where the block ends up. Include diagonal-orientation placements in the
+same session. Then retrain rec x4, eval grid at n10.

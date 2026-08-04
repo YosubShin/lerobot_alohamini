@@ -153,9 +153,12 @@ def main() -> None:
     def leader_shadow(joints: dict[str, float]) -> None:
         leader.bus.sync_write("Goal_Position", {m: joints[f"{m}.pos"] for m in motor_names})
 
-    def leader_deviation(joints: dict[str, float]) -> float:
+    ARM = [n for n in state_names if n != "gripper.pos"]  # gripper excluded:
+    # the trigger servo carries the operator's resting finger
+
+    def leader_offsets(joints: dict[str, float]) -> dict[str, float]:
         lp = leader.get_action()
-        return max(abs(lp[n] - joints[n]) for n in state_names)
+        return {n: lp[n] - joints[n] for n in ARM}
 
     # dagger dataset (teleop semantics)
     action_features = hw_to_dataset_features(robot.action_features, ACTION, use_video=True)
@@ -226,7 +229,19 @@ def main() -> None:
             _, _, last_sent = policy_obs()
             mode = "policy"
             dev_count = 0
+            # Baseline phase: let the soft leader settle onto the follower pose,
+            # then record per-joint offsets (gravity sag + calibration deltas).
+            # Trigger fires on deviation CHANGE from this baseline, so sag never
+            # false-triggers and soft gains stay soft.
+            print("Settling leader (baseline)…", flush=True)
+            for _ in range(10):
+                _, _, j0 = policy_obs()
+                leader_shadow(j0)
+                precise_sleep(1.0 / args.fps)
+            _, _, j0 = policy_obs()
+            baseline = leader_offsets(j0)
             t_end = time.perf_counter() + args.rollout_time
+            last_dbg = time.perf_counter()
             print("Policy rolling — hands on the leader…", flush=True)
 
             while time.perf_counter() < t_end:
@@ -241,16 +256,26 @@ def main() -> None:
                         break
                     # shadow + trigger detection BEFORE acting
                     leader_shadow(joints)
-                    dev = leader_deviation(joints)
+                    off = leader_offsets(joints)
+                    dev = max(abs(off[n] - baseline[n]) for n in ARM)
                     if dev > args.takeover_delta:
                         dev_count += 1
                     else:
                         dev_count = 0
+                        # slow EMA absorbs pose-dependent sag drift (~3 s time
+                        # constant — far slower than a deliberate grab)
+                        for n in ARM:
+                            baseline[n] += 0.02 * (off[n] - baseline[n])
+                    if time.perf_counter() - last_dbg > 2.0:
+                        print(f"  [dev {dev:4.1f}u / trigger {args.takeover_delta}]",
+                              flush=True)
+                        last_dbg = time.perf_counter()
                     if dev_count >= args.takeover_ticks:
                         leader.bus.disable_torque()   # leader instantly passive
                         mode = "takeover"
-                        print(f"\n>>> TAKEOVER (dev {dev:.1f}u) — recording. "
-                              f"ENTER=save  r=discard", flush=True)
+                        print(f"\n>>> TAKEOVER (dev {dev:.1f}u) — YOU have control, "
+                              f"leader is limp. Recover, then ENTER=save r=discard",
+                              flush=True)
                         continue
                     with torch.inference_mode():
                         o = prepare_observation_for_inference(

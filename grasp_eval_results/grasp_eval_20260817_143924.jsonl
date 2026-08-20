@@ -1,0 +1,12 @@
+{"scene": 12, "model": "GN_s1000", "rep": 0, "role": "seed", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787002793.067953}
+{"scene": 12, "model": "PT_slowLR", "rep": 1, "role": "trial", "score": 2, "closed_at": 13.549430410843343, "seed_model": "GN_s1000", "t": 1787002825.586893}
+{"scene": 12, "model": "PT_fullLR", "rep": 0, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787002865.6363182}
+{"scene": 12, "model": "GN_raw", "rep": 0, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787002889.7631562}
+{"scene": 12, "model": "GN_raw", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787002915.7023358}
+{"scene": 12, "model": "BN_scratch", "rep": 0, "role": "trial", "score": 2, "closed_at": 5.341365728992969, "seed_model": "GN_s1000", "t": 1787002941.6158283}
+{"scene": 12, "model": "GN_s2000", "rep": 0, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787002970.0634332}
+{"scene": 12, "model": "PT_slowLR", "rep": 0, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787003020.9117665}
+{"scene": 12, "model": "GN_s2000", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787003047.1252878}
+{"scene": 12, "model": "GN_s1000", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787003067.469996}
+{"scene": 12, "model": "PT_fullLR", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787003107.8034403}
+{"scene": 12, "model": "BN_scratch", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1787003165.0306287}

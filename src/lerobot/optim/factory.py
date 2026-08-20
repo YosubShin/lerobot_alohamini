@@ -37,6 +37,25 @@ def make_optimizer_and_scheduler(
     params = policy.get_optim_params() if cfg.use_policy_training_preset else policy.parameters()
     if cfg.optimizer is None:
         raise ValueError("Optimizer config is required but not provided in TrainPipelineConfig")
+    # LEROBOT_BACKBONE_LR_SCALE=0.1: fine-tune the pretrained vision backbone at a
+    # scaled LR while the rest of the network trains at the regular LR (DP paper
+    # section 5.4 prescription: "10x smaller vs diffusion policy network").
+    import logging
+    import os
+
+    scale = float(os.environ.get("LEROBOT_BACKBONE_LR_SCALE", "0"))
+    if scale > 0:
+        named = [(n, p) for n, p in policy.named_parameters() if p.requires_grad]
+        backbone = [p for n, p in named if "rgb_encoder" in n and ".backbone." in n]
+        bb_ids = {id(p) for p in backbone}
+        rest = [p for _, p in named if id(p) not in bb_ids]
+        assert backbone, "LEROBOT_BACKBONE_LR_SCALE set but no rgb_encoder.backbone params found"
+        base_lr = cfg.optimizer.lr
+        params = [{"params": rest}, {"params": backbone, "lr": base_lr * scale}]
+        logging.info(
+            f"Backbone LR scale {scale}: {len(backbone)} backbone tensors at "
+            f"lr={base_lr * scale:.2e}, {len(rest)} tensors at lr={base_lr:.2e}"
+        )
     optimizer = cfg.optimizer.build(params)
     lr_scheduler = cfg.scheduler.build(optimizer, cfg.steps) if cfg.scheduler is not None else None
     return optimizer, lr_scheduler

@@ -1,0 +1,14 @@
+{"scene": 10, "model": "PT_slowLR", "rep": 0, "role": "seed", "score": 0, "closed_at": null, "seed_model": "PT_slowLR", "t": 1787002432.1321554}
+{"scene": 10, "model": "PT_slowLR", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "PT_slowLR", "t": 1787002457.8374777}
+{"scene": 11, "model": "PT_fullLR", "rep": 0, "role": "seed", "score": 2, "closed_at": 10.593639618949965, "seed_model": "PT_fullLR", "t": 1787002494.2908316}
+{"scene": 11, "model": "GN_s2000", "rep": 1, "role": "trial", "score": 2, "closed_at": 8.277044593123719, "seed_model": "PT_fullLR", "t": 1787002515.5662334}
+{"scene": 11, "model": "GN_s2000", "rep": 0, "role": "trial", "score": 2, "closed_at": 4.472858807072043, "seed_model": "PT_fullLR", "t": 1787002536.0619912}
+{"scene": 11, "model": "PT_fullLR", "rep": 1, "role": "trial", "score": 2, "closed_at": 3.805685562081635, "seed_model": "PT_fullLR", "t": 1787002550.8568914}
+{"scene": 11, "model": "BN_scratch", "rep": 0, "role": "trial", "score": 2, "closed_at": 4.67327698180452, "seed_model": "PT_fullLR", "t": 1787002568.9790103}
+{"scene": 11, "model": "GN_s1000", "rep": 0, "role": "trial", "score": 2, "closed_at": 5.674322491046041, "seed_model": "PT_fullLR", "t": 1787002586.4939764}
+{"scene": 11, "model": "GN_s1000", "rep": 1, "role": "trial", "score": 2, "closed_at": 7.543361552990973, "seed_model": "PT_fullLR", "t": 1787002605.754678}
+{"scene": 11, "model": "BN_scratch", "rep": 1, "role": "trial", "score": 2, "closed_at": 4.940213504945859, "seed_model": "PT_fullLR", "t": 1787002624.34964}
+{"scene": 11, "model": "GN_raw", "rep": 0, "role": "trial", "score": 2, "closed_at": 3.940561782103032, "seed_model": "PT_fullLR", "t": 1787002639.7400799}
+{"scene": 11, "model": "PT_slowLR", "rep": 0, "role": "trial", "score": 2, "closed_at": 6.9428642159327865, "seed_model": "PT_fullLR", "t": 1787002658.2578576}
+{"scene": 11, "model": "GN_raw", "rep": 1, "role": "trial", "score": 2, "closed_at": 5.140117408009246, "seed_model": "PT_fullLR", "t": 1787002676.6037016}
+{"scene": 11, "model": "PT_slowLR", "rep": 1, "role": "trial", "score": 2, "closed_at": 6.47439290699549, "seed_model": "PT_fullLR", "t": 1787002694.84943}

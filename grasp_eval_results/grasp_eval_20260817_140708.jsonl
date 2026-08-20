@@ -1,0 +1,12 @@
+{"scene": 7, "model": "GN_raw", "rep": 0, "role": "seed", "score": 0, "closed_at": 18.822334421100095, "seed_model": "GN_raw", "t": 1787000945.5790582}
+{"scene": 7, "model": "PT_slowLR", "rep": 1, "role": "trial", "score": 2, "closed_at": 8.678378602024168, "seed_model": "GN_raw", "t": 1787000995.8713944}
+{"scene": 7, "model": "PT_fullLR", "rep": 0, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_raw", "t": 1787001029.6185567}
+{"scene": 7, "model": "GN_s1000", "rep": 1, "role": "trial", "score": 2, "closed_at": 9.14596138196066, "seed_model": "GN_raw", "t": 1787001076.2866104}
+{"scene": 7, "model": "GN_raw", "rep": 1, "role": "trial", "score": 2, "closed_at": 8.07911227690056, "seed_model": "GN_raw", "t": 1787001115.869237}
+{"scene": 7, "model": "BN_scratch", "rep": 0, "role": "trial", "score": 2, "closed_at": 8.677284018835053, "seed_model": "GN_raw", "t": 1787001162.0600955}
+{"scene": 7, "model": "GN_s2000", "rep": 0, "role": "trial", "score": 1, "closed_at": 9.67770931404084, "seed_model": "GN_raw", "t": 1787001199.050946}
+{"scene": 7, "model": "PT_slowLR", "rep": 0, "role": "trial", "score": 2, "closed_at": 10.082712678005919, "seed_model": "GN_raw", "t": 1787001240.8818662}
+{"scene": 7, "model": "GN_s2000", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_raw", "t": 1787001273.241444}
+{"scene": 7, "model": "GN_s1000", "rep": 0, "role": "trial", "score": 2, "closed_at": 12.117669894825667, "seed_model": "GN_raw", "t": 1787001318.1336336}
+{"scene": 7, "model": "PT_fullLR", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_raw", "t": 1787001337.3872273}
+{"scene": 7, "model": "BN_scratch", "rep": 1, "role": "trial", "score": 2, "closed_at": 6.8755592501256615, "seed_model": "GN_raw", "t": 1787001363.3060522}

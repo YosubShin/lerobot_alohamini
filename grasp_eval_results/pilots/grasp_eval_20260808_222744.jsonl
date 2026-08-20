@@ -1,0 +1,3 @@
+{"scene": 0, "model": "GN_s1000", "rep": 0, "role": "seed", "score": 2, "closed_at": 25.040985736995935, "seed_model": "GN_s1000", "t": 1786253319.6344774}
+{"scene": 0, "model": "PT_slowLR", "rep": 1, "role": "trial", "score": 0, "closed_at": null, "seed_model": "GN_s1000", "t": 1786253411.5058808}
+{"scene": 0, "model": "PT_fullLR", "rep": 0, "role": "trial", "score": 2, "closed_at": 9.981002683984116, "seed_model": "GN_s1000", "t": 1786253511.1594875}

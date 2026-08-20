@@ -88,6 +88,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--archive_dir", type=str, default="/mnt/nvme/lerobot/fisheye_archive")
     p.add_argument("--remote_user", type=str, default="yosub")
     p.add_argument("--no_extract_1080p", action="store_true")
+    p.add_argument("--no_rerun", action="store_true",
+                   help="Disable the live Rerun wrist view (on by default)")
     p.add_argument(
         "--follow_ramp_s",
         type=float,
@@ -97,7 +99,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _wait_for_next_episode_following(kb, events, robot, leader, fps, prompt=None) -> bool:
+def _wait_for_next_episode_following(kb, events, robot, leader, fps, prompt=None, view=None) -> bool:
     """Between episodes: keep the follower tracking the leader while waiting
     for Enter. Returns False on quit."""
     kb.clear()
@@ -115,7 +117,9 @@ def _wait_for_next_episode_following(kb, events, robot, leader, fps, prompt=None
         t0 = time.perf_counter()
         try:
             robot.send_action(leader.get_action())
-            robot.get_observation()
+            obs = robot.get_observation()
+            if view is not None:
+                view.log(obs)
         except Exception:
             pass
         pressed = kb.get_pressed()
@@ -135,7 +139,7 @@ def _wait_for_next_episode_following(kb, events, robot, leader, fps, prompt=None
 
 
 def teleop_record_loop(*, robot, leader, events, fps, control_time_s, dataset,
-                       single_task, kb) -> None:
+                       single_task, kb, view=None) -> None:
     import numpy as np
 
     interval = 1.0 / fps
@@ -160,6 +164,8 @@ def teleop_record_loop(*, robot, leader, events, fps, control_time_s, dataset,
         action = leader.get_action()          # THE teleop difference:
         robot.send_action(action)             # action = leader pose, sent as goal
         obs = robot.get_observation()
+        if view is not None:
+            view.log(obs)
 
         for cam, frame in obs.items():
             if not (isinstance(frame, np.ndarray) and frame.ndim == 3):
@@ -253,6 +259,11 @@ def main() -> None:
         raise SystemExit(1)
     print(f"Observation rate OK: {obs_hz:.1f} Hz (need >= {needed_hz:.1f}); cameras live: all", flush=True)
 
+    view = None
+    if cam_shapes and not args.no_rerun:
+        from rerun_view import RerunWristView
+        view = RerunWristView(cam=next(iter(cam_shapes)))
+
     leader.connect()
     print("\nHold the leader arm roughly where the follower should start.")
     input("Press ENTER to ramp the follower to the leader's pose…")
@@ -271,7 +282,8 @@ def main() -> None:
     try:
         if not _wait_for_next_episode_following(
                 kb, events, robot, leader, args.fps,
-                prompt="Position leader at the start pose, then Enter for the first episode"):
+                prompt="Position leader at the start pose, then Enter for the first episode",
+                view=view):
             return
         while recorded_episodes < args.num_episodes and not events["stop_recording"]:
             print("\n" + "█" * 74)
@@ -288,7 +300,7 @@ def main() -> None:
             ep_start_unix = time.time()
             teleop_record_loop(robot=robot, leader=leader, events=events, fps=args.fps,
                                control_time_s=args.episode_time, dataset=dataset,
-                               single_task=args.task_description, kb=kb)
+                               single_task=args.task_description, kb=kb, view=view)
             ep_end_unix = time.time()
 
             if events["stop_recording"]:
@@ -320,14 +332,14 @@ def main() -> None:
                     # with torque OFF — re-latch by ramping to the leader pose.
                     print("Re-engaging follower (ramp to leader pose)…", flush=True)
                     _ramp_to_pose(robot, leader.get_action(), 2.0)
-                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps):
+                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps, view=view):
                     break
                 continue
 
             if not dataset.has_pending_frames():
                 print("No frames captured — not saving.")
                 dataset.clear_episode_buffer()
-                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps):
+                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps, view=view):
                     break
                 continue
 
@@ -338,7 +350,7 @@ def main() -> None:
             print(f"\n✔✔✔  SAVED  —  {recorded_episodes}/{args.num_episodes} episodes\n", flush=True)
 
             if recorded_episodes < args.num_episodes and not events["stop_recording"]:
-                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps):
+                if not _wait_for_next_episode_following(kb, events, robot, leader, args.fps, view=view):
                     break
     finally:
         log_say("Stop recording")

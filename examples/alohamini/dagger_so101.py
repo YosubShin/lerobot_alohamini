@@ -18,6 +18,12 @@ Per-round flow:
       --success_dataset (Sirius/RFT-style self-imitation, human-labeled)
     - s = end round, record nothing
   q quits the session (post-session 1080p extraction runs as usual).
+
+Recording rate: NATIVE fps*interp_substeps (30 at deploy defaults). Policy
+mode records one frame per interp substep (fresh obs per micro-command);
+takeover mode runs its whole loop at the substep tick. No temporal
+upsampling needed at merge time. Train intervention episodes with
+LEROBOT_DROP_N_FIRST=4 (= 2*interp_substeps pre-takeover context frames).
 """
 from __future__ import annotations
 
@@ -88,6 +94,10 @@ def parse_args() -> argparse.Namespace:
                         "firmly (20) rather than softly (8, which lags motion and "
                         "sags under gravity)")
     p.add_argument("--leader_d", type=int, default=16)
+    p.add_argument("--leader_gripper_p", type=int, default=6,
+                   help="Soft P for the leader gripper trigger — enough to track "
+                        "the follower gripper under a resting finger, low enough "
+                        "not to stall-fight it (P=20 there browned out the bus)")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--archive_dir", type=str, default="/mnt/nvme/lerobot/fisheye_archive")
     p.add_argument("--remote_user", type=str, default="yosub")
@@ -100,6 +110,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Record natively at the substep tick (30 fps at deploy defaults), not the
+    # 15 fps policy tick — no post-hoc temporal upsampling needed for training.
+    S = args.interp_substeps
+    record_fps = args.fps * S
 
     root = Path(args.train_dataset_root)
     meta = LeRobotDatasetMetadata(repo_id=root.name, root=root)
@@ -148,17 +163,30 @@ def main() -> None:
 
     def leader_track_gains() -> None:
         for m in motor_names:
-            leader.bus.write("P_Coefficient", m, args.leader_p, normalize=False)
+            p_gain = args.leader_gripper_p if m == "gripper" else args.leader_p
+            leader.bus.write("P_Coefficient", m, p_gain, normalize=False)
             leader.bus.write("I_Coefficient", m, 0, normalize=False)
             leader.bus.write("D_Coefficient", m, args.leader_d, normalize=False)
 
     leader_track_gains()
 
-    def leader_shadow(joints: dict[str, float]) -> None:
-        leader.bus.sync_write("Goal_Position", {m: joints[f"{m}.pos"] for m in motor_names})
-
     ARM = [n for n in state_names if n != "gripper.pos"]  # gripper excluded:
     # the trigger servo carries the operator's resting finger
+    ARM_MOTORS = [m for m in motor_names if m != "gripper"]
+    # Gripper shadowing keeps the trigger aligned so takeover gripper control
+    # is 1:1 (without it, the offset bleed drags the follower gripper to the
+    # arbitrary finger position — can drop a held block). But full-gain
+    # always-on tracking stall-fights the resting finger and browns out the
+    # bus (id 6 "Input voltage error" killed a session). So: gripper shadows
+    # at SOFT gain, and only while a rollout is live — passive when idle.
+
+    def leader_shadow(joints: dict[str, float], with_gripper: bool = False) -> None:
+        motors = motor_names if with_gripper else ARM_MOTORS
+        try:
+            leader.bus.sync_write("Goal_Position",
+                                  {m: joints[f"{m}.pos"] for m in motors})
+        except Exception as e:  # transient servo flag must not kill the session
+            print(f"[leader] shadow write failed ({e}) — continuing", flush=True)
 
     def leader_offsets(joints: dict[str, float]) -> dict[str, float]:
         lp = leader.get_action()
@@ -171,23 +199,31 @@ def main() -> None:
         dataset = LeRobotDataset.resume(repo_id=args.dagger_dataset,
                                         root=HF_LEROBOT_HOME / args.dagger_dataset,
                                         image_writer_threads=4)
+        if dataset.fps != record_fps:
+            raise SystemExit(
+                f"Resumed dataset is {dataset.fps} fps but recording now runs at "
+                f"{record_fps} fps (native substep tick). Use a fresh --dagger_dataset.")
         print("Resuming dagger dataset:", args.dagger_dataset)
     else:
-        dataset = LeRobotDataset.create(repo_id=args.dagger_dataset, fps=args.fps,
+        dataset = LeRobotDataset.create(repo_id=args.dagger_dataset, fps=record_fps,
                                         features={**action_features, **obs_features},
                                         robot_type=robot.name, use_videos=True,
                                         image_writer_threads=4)
         print("Created dagger dataset:", args.dagger_dataset,
-              f"(NOTE: recorded at {args.fps} fps — the deploy tick)")
+              f"(recorded at {record_fps} fps — native substep tick)")
 
     success_repo = args.success_dataset or (args.dagger_dataset + "_success")
     sroot = HF_LEROBOT_HOME / success_repo
     if sroot.exists():
         sdataset = LeRobotDataset.resume(repo_id=success_repo, root=sroot,
                                          image_writer_threads=4)
+        if sdataset.fps != record_fps:
+            raise SystemExit(
+                f"Success dataset is {sdataset.fps} fps but recording now runs at "
+                f"{record_fps} fps. Use a fresh --success_dataset.")
         print("Resuming success dataset:", success_repo)
     else:
-        sdataset = LeRobotDataset.create(repo_id=success_repo, fps=args.fps,
+        sdataset = LeRobotDataset.create(repo_id=success_repo, fps=record_fps,
                                          features={**action_features, **obs_features},
                                          robot_type=robot.name, use_videos=True,
                                          image_writer_threads=4)
@@ -204,16 +240,31 @@ def main() -> None:
         return raw, obs, joints
 
     def ramp_to(target: dict[str, float], seconds: float) -> None:
+        # follower AND leader ramp home together along the same interpolation —
+        # without this the idle-loop shadow would snap the leader to home in
+        # one jump after a round (post-takeover it can be far from home)
         _, _, cur = policy_obs()
+        try:
+            leader.bus.enable_torque(ARM_MOTORS)
+        except Exception as e:
+            print(f"[leader] enable_torque failed in ramp ({e}) — continuing", flush=True)
         n = max(1, int(seconds * 30))
         for i in range(1, n + 1):
             w = i / n
-            robot.send_action({k: cur[k] + w * (target[k] - cur[k]) for k in state_names})
+            step = {k: cur[k] + w * (target[k] - cur[k]) for k in state_names}
+            robot.send_action(step)
+            leader_shadow(step)
             precise_sleep(1.0 / 30)
 
     kb = FocusKeyboard()
     kb.start()
     interval = 1.0 / args.fps
+    rec_interval = 1.0 / record_fps
+    # handover_decay is calibrated per policy tick (0.85 @15 Hz ~ 1 s bleed);
+    # takeover now runs at the record tick, so re-scale to keep the same bleed time
+    takeover_decay = args.handover_decay ** (1.0 / S)
+    PREBUF_N = 2 * S  # pre-takeover context frames at record_fps (same wall-clock
+                      # span as the old 2 @ 15 fps) -> train with LEROBOT_DROP_N_FIRST=4
     saved = 0
     n_success = 0
     print("\nSHADOWING DAGGER READY.")
@@ -224,6 +275,10 @@ def main() -> None:
         while True:
             robot.enable_torque()
             ramp_to(reset_pose, args.home_seconds)
+            try:
+                leader.bus.disable_torque("gripper")  # trigger free while idle
+            except Exception:
+                pass
             kb.clear()
             print(f"\n[{saved} interventions, {n_success} successes]  Place the block, ENTER to roll out (q=quit)…",
                   flush=True)
@@ -233,9 +288,15 @@ def main() -> None:
                     return
                 if "\r" in pressed or "\n" in pressed:
                     break
-                # keep leader converged to follower while idle
+                # keep leader converged to follower while idle (arm only —
+                # gripper stays passive under the operator's finger)
                 _, _, j = policy_obs()
-                leader.bus.enable_torque()
+                try:
+                    leader.bus.enable_torque(ARM_MOTORS)
+                except Exception as e:
+                    print(f"[leader] enable_torque failed ({e}) — retrying", flush=True)
+                    precise_sleep(0.5)
+                    continue
                 leader_shadow(j)
                 precise_sleep(0.05)
             kb.clear()
@@ -247,16 +308,21 @@ def main() -> None:
             mode = "policy"
             handover_offset = None
             rollout_frames = []   # policy trajectory buffer (kept only on ENTER)
-            prebuf = []           # last 2 policy-mode frames; prepended at takeover
-                                  # so intervention episodes carry the DYNAMIC
-                                  # failure observation history (train with
-                                  # LEROBOT_DROP_N_FIRST=2: obs context only,
+            prebuf = []           # last PREBUF_N policy-mode frames; prepended at
+                                  # takeover so intervention episodes carry the
+                                  # DYNAMIC failure observation history (train with
+                                  # LEROBOT_DROP_N_FIRST=PREBUF_N: obs context only,
                                   # stored policy actions never supervised)
+            try:                  # gripper torque only while the rollout is live
+                leader.bus.enable_torque("gripper")
+            except Exception as e:
+                print(f"[leader] gripper enable failed ({e}) — continuing", flush=True)
             for _ in range(6):    # let the leader settle onto the follower
                 _, _, j0 = policy_obs()
-                leader_shadow(j0)
+                leader_shadow(j0, with_gripper=True)
                 precise_sleep(1.0 / args.fps)
             t_end = time.perf_counter() + args.rollout_time
+            t_round_start = time.time()
             print("Policy rolling — SPACE to take over, ENTER when it succeeds…", flush=True)
 
             while time.perf_counter() < t_end:
@@ -274,18 +340,22 @@ def main() -> None:
                             sdataset.add_frame(fr)
                         if sdataset.has_pending_frames():
                             sdataset.save_episode()
-                            _log_episode_wallclock(sdataset, time.time(), time.time())
+                            _log_episode_wallclock(sdataset, t_round_start, time.time())
                             n_success += 1
                             print(f"SUCCESS rollout saved ({n_success} total).", flush=True)
                         break
-                    leader_shadow(joints)
+                    leader_shadow(joints, with_gripper=True)
                     if " " in pressed:
-                        leader.bus.disable_torque()   # leader instantly passive
+                        try:
+                            leader.bus.disable_torque()  # leader instantly passive (all motors)
+                        except Exception as e:
+                            print(f"[leader] disable_torque failed ({e}) — continuing", flush=True)
                         # capture the leader-follower mismatch at this instant and
                         # bleed it off — the follower must NOT snap to the leader
                         lp = leader.get_action()
                         handover_offset = {n: lp[n] - joints[n] for n in state_names}
                         mode = "takeover"
+                        t_takeover = time.time()
                         for fr in prebuf:   # dynamic pre-takeover context frames
                             dataset.add_frame(dict(fr))
                         print("\n>>> TAKEOVER — you have control (offset bleeding off). "
@@ -302,28 +372,28 @@ def main() -> None:
                         d = args.gripper_max_delta if n == "gripper.pos" else args.max_delta_per_tick
                         cmd[n] = min(max(cmd[n], last_sent[n] - d), last_sent[n] + d)
                         last_sent[n] = cmd[n]
-                    if args.interp_substeps > 1:
-                        S = args.interp_substeps
-                        for s_ in range(1, S + 1):
-                            w = s_ / S
-                            robot.send_action({n: prev[n] + w * (cmd[n] - prev[n])
-                                               for n in state_names})
-                            if s_ < S:
-                                precise_sleep(interval / S)
-                    else:
-                        robot.send_action(cmd)
-                    oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
-                    aframe = build_dataset_frame(dataset.features, cmd, prefix=ACTION)
-                    fr = {**oframe, **aframe, "task": args.task_description}
-                    rollout_frames.append(fr)
-                    prebuf.append(fr)
-                    if len(prebuf) > 2:
-                        prebuf.pop(0)
+                    # one recorded frame PER SUBSTEP: fresh obs paired with the
+                    # micro-command issued from it (teleop semantics at record_fps)
+                    for s_ in range(1, S + 1):
+                        w = s_ / S
+                        sub = {n: prev[n] + w * (cmd[n] - prev[n]) for n in state_names}
+                        if s_ > 1:
+                            raw, obs, joints = policy_obs()
+                        robot.send_action(sub)
+                        oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
+                        aframe = build_dataset_frame(dataset.features, sub, prefix=ACTION)
+                        fr = {**oframe, **aframe, "task": args.task_description}
+                        rollout_frames.append(fr)
+                        prebuf.append(fr)
+                        if len(prebuf) > PREBUF_N:
+                            prebuf.pop(0)
+                        if s_ < S:
+                            precise_sleep(rec_interval)
                 else:  # takeover: teleop + record
                     if "\r" in pressed or "\n" in pressed:
                         if dataset.has_pending_frames():
                             dataset.save_episode()
-                            _log_episode_wallclock(dataset, time.time(), time.time())
+                            _log_episode_wallclock(dataset, t_takeover, time.time())
                             saved += 1
                             print(f"Intervention SAVED ({saved} total).", flush=True)
                         break
@@ -334,13 +404,15 @@ def main() -> None:
                     lp = leader.get_action()
                     act = {n: lp[n] - handover_offset[n] for n in state_names}
                     for n in state_names:
-                        handover_offset[n] *= args.handover_decay
+                        handover_offset[n] *= takeover_decay
                     robot.send_action(act)
                     oframe = build_dataset_frame(dataset.features, raw, prefix=OBS_STR)
                     aframe = build_dataset_frame(dataset.features, act, prefix=ACTION)
                     dataset.add_frame({**oframe, **aframe, "task": args.task_description})
                 el = time.perf_counter() - t0
-                precise_sleep(max(interval - el, 0.0))
+                # takeover has no inference in the loop — run it at the record tick
+                tick = rec_interval if mode == "takeover" else interval
+                precise_sleep(max(tick - el, 0.0))
             else:
                 print("Rollout time cap reached.", flush=True)
             if mode == "takeover" and dataset.has_pending_frames():

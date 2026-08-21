@@ -282,7 +282,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import os
+    import traceback
+
     try:
         main()
     except KeyboardInterrupt:
         print("\nstopped")
+    except Exception:
+        traceback.print_exc()
+    finally:
+        # i2rt's CAN chain threads are non-daemon: a crash after robot init
+        # would otherwise leave a zombie holding the ZMQ ports and the CAN
+        # buses (motors keep getting fed by the chain thread). Hard-exit so
+        # the process, its ports, and the buses always die together.
+        os._exit(0)

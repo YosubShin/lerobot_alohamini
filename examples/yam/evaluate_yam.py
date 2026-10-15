@@ -127,19 +127,36 @@ ARMS = {
             "dp": ("pilot_s2_Cw", "s2_Cw_s1000_dp/checkpoints/007000_ema")},
     "Cf2": {"cam": "forward",
             "dp": ("pilot_s2_Cf", "s2_Cf_s1000_dp/checkpoints/005000_ema")},
-    # --- head-cam round (2026-10-15): SO-101 head cam parked by so101_cam_track.py,
+    # --- head-cam round (2026-10-15): SO-101 head cam parked/tracking via so101_cam_track.py,
     # key observation.images.b0587b, 640x360; "crop" = centred fraction before resize.
-    # Tracker must be running (tracking, or --static for the parked ablation).
-    # glove_Hc: glove-only head view, 80% crop, robot val .527@48k (deploy distribution).
+    # Tracker must be running (tracking for the head arms; --static for the parked ablation).
+    # All teleop arms: the SAME 96 matched teleop eps (head12/13 minus 6 shared val eps);
+    # mixes add the same 104 glove eps (glove4+5 head view). Deploy at the robot-val minimum.
+    # robot val: head_Hc .365@32k, head_H .355@42k, head_A .335@40k, head_B .377@30k;
+    #            mix_hHc .278@50k, mix_hH .282@48k, mix_hA .276@48k, mix_hB .301@48k,
+    #            mix_hHc_half .291@50k; glove_Hc (glove-only) .527@48k.
+    "head_Hc": {"cam": "head", "crop": 0.8,
+                "act": ("pilot_head_Hcj", "head_Hcj_act50/checkpoints/032000")},
+    "head_H": {"cam": "head",
+               "act": ("pilot_head_Hj", "head_Hj_act50/checkpoints/042000")},
+    "head_A": {"cam": "fish",      # wrist control, same 96 eps
+               "act": ("pilot_head_Aj", "head_Aj_act50/checkpoints/040000")},
+    "head_B": {"cam": "forward",   # forward control, same 96 eps
+               "act": ("pilot_head_Bj", "head_Bj_act50/checkpoints/030000")},
+    "mix_hHc": {"cam": "head", "crop": 0.8,
+                "act": ("pilot_mix_hHc", "mix_hHc_act50/checkpoints/050000")},
+    "mix_hH": {"cam": "head",
+               "act": ("pilot_mix_hH", "mix_hH_act50/checkpoints/048000")},
+    "mix_hA": {"cam": "fish",
+               "act": ("pilot_mix_hA", "mix_hA_act50/checkpoints/048000")},
+    "mix_hB": {"cam": "forward",
+               "act": ("pilot_mix_hB", "mix_hB_act50/checkpoints/048000")},
+    "mix_hHc_half": {"cam": "head", "crop": 0.8,
+                     "act": ("pilot_mix_hHc", "mix_hHc_half_act50/checkpoints/050000")},
     "glove_Hc": {"cam": "head", "crop": 0.8,
                  "act": ("pilot_glove_Hcj_s45", "glove_Hcj_s45_act50/checkpoints/048000")},
-    # glove_H: glove-only head view, no crop (NAS run linked into train_runs); glove val .286@40k.
-    "glove_H": {"cam": "head",
+    "glove_H": {"cam": "head",    # NAS run linked into train_runs; glove val .286@40k, no robot val
                 "act": ("pilot_glove_Hj_s45", "Hj_s45_act50/checkpoints/040000")},
-    # head_Hc: teleop (96 matched eps) head view, 80% crop. SPOT-CHECK checkpoint from a
-    # run still training (24k of 50k) — repoint at the robot-val minimum once swept.
-    "head_Hc": {"cam": "head", "crop": 0.8,
-                "act": ("pilot_head_Hcj", "head_Hcj_act50/checkpoints/024000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

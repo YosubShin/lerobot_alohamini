@@ -129,6 +129,25 @@ class Cameras:
         return out
 
 
+def motor_temps(robot) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """MOS + rotor temperatures (degC) from the chain's live joint state.
+    Walks wrapper layers; returns (None, None) on sim or if unavailable."""
+    r = robot
+    for _ in range(4):
+        js = getattr(r, "_joint_state", None)
+        if js is not None and getattr(js, "temp_mos", None) is not None:
+            return (np.asarray(js.temp_mos, dtype=float),
+                    np.asarray(js.temp_rotor, dtype=float))
+        r = getattr(r, "robot", None) or getattr(r, "_robot", None)
+        if r is None:
+            break
+    return None, None
+
+
+TEMP_WARN_C = 55.0   # print a warning; plan a rest break
+TEMP_HOT_C = 68.0    # rest the arm now (DM motors self-protect around 80)
+
+
 def gravity_idle(robot) -> None:
     if hasattr(robot, "enter_gravity_comp_idle"):
         robot.enter_gravity_comp_idle()
@@ -176,6 +195,11 @@ def main() -> None:
     obs_sock = ctx.socket(zmq.PUSH)
     obs_sock.setsockopt(zmq.SNDHWM, 5)
     obs_sock.bind(f"tcp://*:{args.obs_port}")
+    # broadcast copy of the same observation on obs_port+1 (PUB): extra listeners such as the
+    # SO-101 camera tracker subscribe here without stealing messages from the PUSH/PULL client
+    pub_sock = ctx.socket(zmq.PUB)
+    pub_sock.setsockopt(zmq.SNDHWM, 5)
+    pub_sock.bind(f"tcp://*:{args.obs_port + 1}")
 
     mode = "teleop" if leader is not None else "idle"
     target = follower.get_joint_pos().copy()
@@ -185,6 +209,7 @@ def main() -> None:
     pub_every = max(1, int(round(args.control_hz / args.publish_hz)))
     tick = 0
     fb_stretch = np.zeros(n)
+    last_temp_print = 0.0
 
     def vec_from_msg(msg: dict) -> np.ndarray | None:
         vals = target.copy()
@@ -247,7 +272,11 @@ def main() -> None:
         elif mode == "teleop" and leader is not None:
             q_lead = leader.get_joint_pos()
             err = q_lead - target
-            step = args.track_step if np.max(np.abs(err)) < args.match_tol else args.approach_step
+            # per-joint: only a joint that is itself lagging crawls at
+            # approach speed; the rest keep tracking (2026-09-24 — one
+            # lagging wrist joint used to throttle all six)
+            step = np.where(np.abs(err) < args.match_tol,
+                            args.track_step, args.approach_step)
             target = target + np.clip(err, -step, step)
             target = q_foll + np.clip(target - q_foll, -args.max_err, args.max_err)
             follower.command_joint_pos(target)
@@ -258,7 +287,11 @@ def main() -> None:
                                         "vel": np.zeros(n), "kp": fb_kp, "kd": fb_kd})
         elif mode == "policy":
             err = policy_target - target
-            step = args.track_step if np.max(np.abs(err)) < args.match_tol else args.approach_step
+            # per-joint: only a joint that is itself lagging crawls at
+            # approach speed; the rest keep tracking (2026-09-24 — one
+            # lagging wrist joint used to throttle all six)
+            step = np.where(np.abs(err) < args.match_tol,
+                            args.track_step, args.approach_step)
             target = target + np.clip(err, -step, step)
             target = q_foll + np.clip(target - q_foll, -args.max_err, args.max_err)
             follower.command_joint_pos(target)
@@ -272,11 +305,45 @@ def main() -> None:
             obs.update({f"target.{name}": float(target[i]) for i, name in enumerate(joint_names)})
             obs["mode"] = mode
             obs["t"] = time.time()
+            f_mos, f_rotor = motor_temps(follower)
+            if f_mos is not None:
+                obs.update({f"temp.{name}": float(f_mos[i])
+                            for i, name in enumerate(joint_names)})
+                # rotor (winding) temperature: the one that trips the DM over-temp
+                # fault in a stall — it can go 57 -> 101 degC in seconds while MOS sits at 46
+                obs.update({f"rotor.{name}": float(f_rotor[i])
+                            for i, name in enumerate(joint_names)})
             obs.update(cams.encoded(args.jpeg_quality))
+            payload = json.dumps(obs)
             try:
-                obs_sock.send_string(json.dumps(obs), zmq.NOBLOCK)
+                obs_sock.send_string(payload, zmq.NOBLOCK)
             except zmq.Again:
                 pass
+            try:
+                pub_sock.send_string(payload, zmq.NOBLOCK)
+            except zmq.Again:
+                pass
+
+        # ---- thermal telemetry ----
+        if loop_start - last_temp_print > 10.0:
+            last_temp_print = loop_start
+            lines = []
+            hottest = 0.0
+            for tag, rob in (("follower", follower), ("leader", leader)):
+                if rob is None:
+                    continue
+                mos, rotor = motor_temps(rob)
+                if mos is None:
+                    continue
+                hottest = max(hottest, mos.max())
+                lines.append(f"{tag} MOS " +
+                             " ".join(f"{v:.0f}" for v in mos) +
+                             f" (rotor max {rotor.max():.0f})")
+            if lines:
+                flag = ("  !! HOT — rest the arm" if hottest >= TEMP_HOT_C
+                        else "  ! warm, plan a break" if hottest >= TEMP_WARN_C
+                        else "")
+                print(f"\n[temps degC] {' | '.join(lines)}{flag}", flush=True)
 
         time.sleep(max(0.0, dt - (time.time() - loop_start)))
 

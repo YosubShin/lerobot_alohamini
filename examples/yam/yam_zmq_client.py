@@ -42,6 +42,7 @@ class YamZmqClient(SO101ZmqClient):
         super().__init__(config)
         self.last_targets: dict[str, float] = {}
         self.last_mode: str = "unknown"
+        self.last_temps: dict[str, float] = {}   # temp.<joint> (MOS) / rotor.<joint> degC
 
     def set_mode(self, mode: str) -> None:
         """mode: 'idle' | 'teleop' | 'policy'."""
@@ -60,6 +61,9 @@ class YamZmqClient(SO101ZmqClient):
                     self.last_targets[tkey] = float(msg[tkey])
             if "mode" in msg:
                 self.last_mode = msg["mode"]
+            for k, v in msg.items():  # temp.<joint> (MOS) / rotor.<joint> degC from the host
+                if k.startswith(("temp.", "rotor.")):
+                    self.last_temps[k] = float(v)
             for cam in self.config.cameras:
                 frame = self._decode_image(msg.get(cam, ""))
                 if frame is not None:
@@ -68,6 +72,7 @@ class YamZmqClient(SO101ZmqClient):
         obs = dict(self.last_joints)
         obs.update(self.last_targets)
         obs["mode"] = self.last_mode
+        obs.update(self.last_temps)
         for cam, shape in self.config.cameras.items():
             frame = self.last_frames.get(cam)
             obs[cam] = frame if frame is not None else np.zeros(shape, dtype=np.uint8)

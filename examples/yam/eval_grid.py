@@ -77,6 +77,9 @@ def parse_args():
     p.add_argument("--act_ensemble", type=float, default=0.01)
     p.add_argument("--max_delta_per_tick", type=float, default=None)
     p.add_argument("--gripper_max_delta", type=float, default=0.2)
+    p.add_argument("--gripper_close_bias", type=float, default=0.0,
+                   help="subtract this from the commanded gripper when the policy is closing (< 0.5), floor 0.2 — "
+                        "deploy-time squeeze for glove-labelled arms (evaluate_yam has the same knob)")
     p.add_argument("--interp_substeps", type=int, default=2)
     p.add_argument("--home_seconds", type=float, default=3.0)
     p.add_argument("--skeleton_root", default=str(Path.home() / ".cache/huggingface/lerobot/yam_pilot5"))
@@ -394,6 +397,8 @@ def main():
             frames = {k: v for k, v in obs.items() if "images" in k}  # numpy copies: act() turns obs into tensors
             raw = run.act(obs)
             q_cmd, g_cmd = np.array(raw[:6], dtype=float), float(raw[6])
+            if args.gripper_close_bias > 0 and g_cmd < 0.5:
+                g_cmd = max(g_cmd - args.gripper_close_bias, 0.2)
             d = args.max_delta_per_tick
             q_cmd = np.clip(q_cmd, q_last - d, q_last + d)
             g_cmd = float(np.clip(g_cmd, g_last - args.gripper_max_delta, g_last + args.gripper_max_delta))

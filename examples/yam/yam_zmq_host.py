@@ -49,6 +49,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--leader_channel", type=str, default="none",
                    help="CAN channel of the leader arm, or 'none' for policy-only")
     p.add_argument("--gripper", type=str, default="linear_4310")
+    p.add_argument("--gripper_kp", type=float, default=None,
+                   help="gripper motor kp override (linear_4310 default 20): the MIT-mode spring, so force before "
+                        "the limiter engages = kp x position error; lower = softer squeeze transient")
+    p.add_argument("--gripper_kd", type=float, default=None)
+    p.add_argument("--gripper_force", type=float, default=50.0,
+                   help="N, cap the squeeze once the jaws stall (i2rt GripperForceLimiter); -1 disables")
     p.add_argument("--sim", action="store_true",
                    help="MuJoCo sim follower, synthetic cameras, no CAN")
     p.add_argument("--cmd_port", type=int, default=5601)
@@ -160,7 +166,9 @@ def main() -> None:
     gripper = GripperType[args.gripper.upper()]
 
     follower = get_yam_robot(channel=args.follower_channel, gripper_type=gripper,
-                             zero_gravity_mode=False, sim=args.sim)
+                             zero_gravity_mode=False, sim=args.sim,
+                             gripper_kp=args.gripper_kp, gripper_kd=args.gripper_kd,
+                             limit_gripper_force=args.gripper_force)
     leader = None
     if args.leader_channel.lower() != "none" and not args.sim:
         leader = get_yam_robot(channel=args.leader_channel, gripper_type=gripper)

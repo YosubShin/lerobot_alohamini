@@ -251,6 +251,14 @@ ARMS = {
     # head_Hgt .318@50k (uncropped twin of head_Hcgt .305).
     "head_Hgt": {"cam": "head",
                  "act": ("pilot_head_Hgt", "head_Hgt_act50/checkpoints/050000")},
+    # device arm: encoder teleop (172) + the 194 head-cam-labelled glove segments (layout v3), uncropped head view.
+    # robot val: mix_gHs3 .263@50k (glove val .302); budget pair head_Hgt48 .464@24k vs mix_gHs3_48 .295@40k.
+    "mix_gHs3": {"cam": "head",
+                 "act": ("pilot_mix_gHs3", "mix_gHs3_act50/checkpoints/050000")},
+    "head_Hgt48": {"cam": "head",
+                   "act": ("pilot_head_Hgt", "head_Hgt48_act50/checkpoints/024000")},
+    "mix_gHs3_48": {"cam": "head",
+                    "act": ("pilot_mix_gHs3", "mix_gHs3_48_act50/checkpoints/040000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

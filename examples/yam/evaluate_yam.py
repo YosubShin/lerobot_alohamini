@@ -246,6 +246,11 @@ ARMS = {
                  "act": ("pilot_head_Bgt", "head_Bgt_act50/checkpoints/050000")},
     "mix_FB": {"cam": "forward",
                "act": ("pilot_mix_FB", "mix_FB_act50/checkpoints/044000")},
+    # --- final grid design (2026-10-16 12:00): encoder labels for the TELEOP half in every arm, uncropped head view;
+    # only the glove half carries the camera under test. robot val (encoder chain, comparable across these arms):
+    # head_Hgt .318@50k (uncropped twin of head_Hcgt .305).
+    "head_Hgt": {"cam": "head",
+                 "act": ("pilot_head_Hgt", "head_Hgt_act50/checkpoints/050000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

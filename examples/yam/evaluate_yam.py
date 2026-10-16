@@ -190,6 +190,10 @@ ARMS = {
     "glove_HHsc": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHsc",
                    "act": ("pilot_glove_HHsc", "glove_HHsc_act50/checkpoints/034000")},
     # same, with the tile-solve reprojection gate at 8 px (200 segments, 194 train): mix .262@38k (glove .270), glove .503@36k
+    # wrist-fisheye control at the full budget: encoder labels, 174 of the 178 teleop eps (wrist recording gaps),
+    # 168 of the 172 matched train eps, same 6 val eps. robot val .300@46k (vs head_Hcgt .305: same labels, same eps).
+    "wrist_gt": {"cam": "fish",
+                 "act": ("pilot_head_Agt", "wrist_gt_act50/checkpoints/046000")},
     "mix_HHs2c": {"cam": "head", "crop": 0.8,
                   "act": ("pilot_mix_HHs2c", "mix_HHs2c_act50/checkpoints/038000")},
     "glove_HHs2c": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHs2c",

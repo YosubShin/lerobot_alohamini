@@ -82,7 +82,8 @@ def parse_args():
                         "deploy-time squeeze for glove-labelled arms (evaluate_yam has the same knob)")
     p.add_argument("--interp_substeps", type=int, default=2)
     p.add_argument("--home_seconds", type=float, default=3.0)
-    p.add_argument("--skeleton_root", default=str(Path.home() / ".cache/huggingface/lerobot/yam_pilot5"))
+    p.add_argument("--skeleton_root", default=None,
+                   help="start-pose dataset for ALL policies (default: each arm's \"skeleton\" repo, else yam_pilot5)")
     p.add_argument("--task_description", default="pick red block into bin")
     p.add_argument("--remote_ip", default="127.0.0.1")
     p.add_argument("--zmq_cmd_port", type=int, default=5601)
@@ -322,7 +323,17 @@ def main():
             time.sleep(5)
         print(f"  rotor {t:.0f} degC — continuing", flush=True)
 
-    reset_pose = median_first_frame_state(args.skeleton_root, JOINTS + ["gripper.pos"], set())
+    # start pose per policy: an arm with a "skeleton" repo (glove-only policies, whose demos start from the
+    # human's hand pose, not the teleop home) homes to ITS dataset's median first frame; --skeleton_root
+    # overrides for all. Keyed by policy name; the default pose is used before the first trial and at exit.
+    def _reset_for(name):
+        root = args.skeleton_root or str(Path.home() / ".cache/huggingface/lerobot"
+                                         / ARMS[name].get("skeleton", "yam_pilot5"))
+        return median_first_frame_state(root, JOINTS + ["gripper.pos"], set())
+    reset_poses = {n: _reset_for(n) for n in names}
+    reset_pose = reset_poses[names[0]]
+    for n in names:
+        print(f"  start pose {n}: " + " ".join(f"{v:.2f}" for v in reset_poses[n].values()))
 
     def ramp_to(target, seconds):
         q, g = raw_joints(); cur = {**{n: q[i] for i, n in enumerate(JOINTS)}, "gripper.pos": g}
@@ -331,11 +342,11 @@ def main():
             w = i / n
             robot.send_action({k: cur[k] + w * (target[k] - cur[k]) for k in cur}); precise_sleep(1 / 30)
 
-    def safe_home():
+    def safe_home(name=None):
         import signal as _sig
         old = _sig.signal(_sig.SIGINT, _sig.SIG_IGN)
         try:
-            ramp_to(reset_pose, args.home_seconds)
+            ramp_to(reset_poses.get(name, reset_pose), args.home_seconds)
         finally:
             _sig.signal(_sig.SIGINT, old)
 
@@ -460,7 +471,7 @@ def main():
                     run = runners[name]
                     while True:
                         wait_cool()
-                        log_say("Going to start pose"); safe_home()
+                        log_say("Going to start pose"); safe_home(name)
                         if ref is None:
                             wait_enter_with_overlay(None, f"\n=== scene {scene} rep {rep} — {name} (FIRST trial of this scene): "
                                                           "place the block, ENTER (captures the reference)…")

@@ -157,6 +157,31 @@ ARMS = {
                  "act": ("pilot_glove_Hcj_s45", "glove_Hcj_s45_act50/checkpoints/048000")},
     "glove_H": {"cam": "head",    # NAS run linked into train_runs; glove val .286@40k, no robot val
                 "act": ("pilot_glove_Hj_s45", "Hj_s45_act50/checkpoints/040000")},
+    # --- head-cam round 2 (2026-10-15 evening): head-cam-ONLY label chain. HH = dodeca + gripper decoded from
+    # the head cam, placed via the passive tiles (base<->tile link calib/base_world_20261015.json); Hgt = encoders.
+    # Teleop arms: ALL 172 matched teleop eps (head12/13/14 minus the same 6 val eps); "96" = round-1's 96-ep list.
+    # Mixes add 186 glove eps (glove5-8, head chain with fixed-cam fallback on frames without a tile, 9-36%/session).
+    # Glove-only arm starts from its own first-frame pose ("skeleton"). Deploy at the robot-val minimum.
+    # robot val: head_HHc .287@44k, head_Hcgt .305@26k, head_HHc96 .331@42k, head_Hcgt96 .368@50k, head_HH .282@50k;
+    #            mix_HHc .269@50k, mix_HHc_half .252@46k, mix_HH .251@44k; glove_HHc .503@44k (glove val .369@38k).
+    "head_HHc": {"cam": "head", "crop": 0.8,
+                 "act": ("pilot_head_HHc2", "head_HHc_act50/checkpoints/044000")},
+    "head_Hcgt": {"cam": "head", "crop": 0.8,   # encoder labels, same 172 eps
+                  "act": ("pilot_head_Hcgt", "head_Hcgt_act50/checkpoints/026000")},
+    "head_HHc96": {"cam": "head", "crop": 0.8,  # round-1 96-ep budget
+                   "act": ("pilot_head_HHc2", "head_HHc96_act50/checkpoints/042000")},
+    "head_Hcgt96": {"cam": "head", "crop": 0.8,
+                    "act": ("pilot_head_Hcgt", "head_Hcgt96_act50/checkpoints/050000")},
+    "head_HH": {"cam": "head",
+                "act": ("pilot_head_HH2", "head_HH_act50/checkpoints/050000")},
+    "mix_HHc": {"cam": "head", "crop": 0.8,
+                "act": ("pilot_mix_HHc2", "mix_HHc_act50/checkpoints/050000")},
+    "mix_HHc_half": {"cam": "head", "crop": 0.8,
+                     "act": ("pilot_mix_HHc2", "mix_HHc_half_act50/checkpoints/046000")},
+    "mix_HH": {"cam": "head",
+               "act": ("pilot_mix_HH2", "mix_HH_act50/checkpoints/044000")},
+    "glove_HHc": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHc2",
+                  "act": ("pilot_glove_HHc2", "glove_HHc_act50/checkpoints/044000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).
@@ -178,8 +203,10 @@ def parse_args():
                         "episode and on Ctrl-C (never drops mid-air)")
     p.add_argument("--checkpoint", help="override checkpoint dir "
                                         "(…/pretrained_model parent)")
-    p.add_argument("--skeleton_root", default=str(
-        Path.home() / ".cache/huggingface/lerobot/yam_pilot1"))
+    p.add_argument("--skeleton_root", default=None,
+                   help="dataset whose median first-frame state is the reset "
+                        "pose (default: the arm's \"skeleton\" repo if set, "
+                        "else yam_pilot1)")
     p.add_argument("--num_episodes", type=int, default=5)
     p.add_argument("--episode_time", type=float, default=60.0)
     p.add_argument("--fps", type=float, default=15.0)
@@ -453,6 +480,10 @@ def main():
 
     reset_pose = None
     if not args.no_reset or args.spot:
+        if args.skeleton_root is None:
+            args.skeleton_root = str(
+                Path.home() / ".cache/huggingface/lerobot"
+                / ARMS[args.arm].get("skeleton", "yam_pilot1"))
         reset_pose = median_first_frame_state(
             args.skeleton_root, JOINTS + ["gripper.pos"], set())
         print("Reset pose:", {k: round(v, 3) for k, v in reset_pose.items()})

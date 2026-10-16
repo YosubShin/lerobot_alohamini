@@ -71,6 +71,10 @@ def parse_args():
     p.add_argument("--out_dir", default=str(PILOT / ("rollout_logs/grid_" + time.strftime("%Y%m%d"))))
     p.add_argument("--resume", action="store_true")
     p.add_argument("--seed", type=int, default=1000)
+    p.add_argument("--tracker_ctrl", default="tcp://127.0.0.1:5612",
+                   help="so101_cam_track.py control socket; before each trial the arm's \"tracker\" field "
+                        "(\"track\" default, \"static\" = parked head cam) is sent so one tracker solve serves every arm. "
+                        "'none' disables")
     p.add_argument("--episode_time", type=float, default=60.0)
     p.add_argument("--fps", type=float, default=15.0)
     p.add_argument("--n_action_steps", type=int, default=15)
@@ -323,6 +327,25 @@ def main():
             time.sleep(5)
         print(f"  rotor {t:.0f} degC — continuing", flush=True)
 
+    # head-cam tracker mode per policy (one tracker process, one solve; the mode switches at run time)
+    def set_tracker_mode(name):
+        if args.tracker_ctrl == "none" or not any(ARMS[n]["cam"] == "head" for n in names):
+            return
+        want = ARMS[name].get("tracker", "track")
+        import zmq
+        sock = zmq.Context.instance().socket(zmq.REQ); sock.setsockopt(zmq.LINGER, 0); sock.setsockopt(zmq.RCVTIMEO, 2000); sock.connect(args.tracker_ctrl)
+        try:
+            sock.send_string(json.dumps({"mode": want})); rep = json.loads(sock.recv_string())
+            if rep.get("mode") != want:
+                raise SystemExit(f"tracker refused mode {want}: {rep}")
+            print(f"  tracker mode {want} ({name})")
+        except zmq.Again:
+            raise SystemExit(f"no tracker answering on {args.tracker_ctrl} (start so101_cam_track.py, or --tracker_ctrl none)")
+        finally:
+            sock.close()
+        if want != getattr(set_tracker_mode, "last", None):
+            time.sleep(2.0)                       # let the arm settle on the new target before homing
+        set_tracker_mode.last = want
     # start pose per policy: an arm with a "skeleton" repo (glove-only policies, whose demos start from the
     # human's hand pose, not the teleop home) homes to ITS dataset's median first frame; --skeleton_root
     # overrides for all. Keyed by policy name; the default pose is used before the first trial and at exit.
@@ -471,6 +494,7 @@ def main():
                     run = runners[name]
                     while True:
                         wait_cool()
+                        set_tracker_mode(name)
                         log_say("Going to start pose"); safe_home(name)
                         if ref is None:
                             wait_enter_with_overlay(None, f"\n=== scene {scene} rep {rep} — {name} (FIRST trial of this scene): "

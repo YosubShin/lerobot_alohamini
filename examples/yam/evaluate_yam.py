@@ -243,6 +243,7 @@ def parse_args():
                         "2026-09-16, drops at ~0.33 vs demo carry 0.28)")
     p.add_argument("--home_seconds", type=float, default=3.0)
     p.add_argument("--no_reset", action="store_true")
+    p.add_argument("--tracker_ctrl", default="tcp://127.0.0.1:5612", help="so101_cam_track.py control socket: the arm's \"tracker\" field (track|static) is sent once at start; 'none' disables")
     p.add_argument("--remote_ip", default="127.0.0.1")
     p.add_argument("--zmq_cmd_port", type=int, default=5601)
     p.add_argument("--zmq_obs_port", type=int, default=5602)
@@ -485,6 +486,16 @@ def main():
                        pos_threshold=1e-3, ori_threshold=1e-2, max_iters=60)
         return np.array(q[:6], dtype=float), float(raw[6])
 
+    if args.tracker_ctrl != "none" and ARMS[args.arm]["cam"] == "head":
+        import zmq
+        want = ARMS[args.arm].get("tracker", "track")
+        sock = zmq.Context.instance().socket(zmq.REQ); sock.setsockopt(zmq.LINGER, 0); sock.setsockopt(zmq.RCVTIMEO, 2000); sock.connect(args.tracker_ctrl)
+        try:
+            sock.send_string(json.dumps({"mode": want})); print("tracker:", sock.recv_string())
+        except zmq.Again:
+            print(f"WARNING: no tracker answering on {args.tracker_ctrl}; continuing")
+        finally:
+            sock.close()
     reset_pose = None
     if not args.no_reset or args.spot:
         if args.skeleton_root is None:

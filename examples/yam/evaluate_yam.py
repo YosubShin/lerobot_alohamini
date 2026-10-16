@@ -182,6 +182,13 @@ ARMS = {
                "act": ("pilot_mix_HH2", "mix_HH_act50/checkpoints/044000")},
     "glove_HHc": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHc2",
                   "act": ("pilot_glove_HHc2", "glove_HHc_act50/checkpoints/044000")},
+    # strict head-only glove set (pilot_glove_HHsc): NO forward-cam fallback, chained single-tile solves,
+    # blind stretches > 0.3 s cut out (198 eps -> 230 segments, 89% of frames kept), same 172 teleop eps in the mix.
+    # robot val: mix_HHsc .260@36k (glove val .274), glove_HHsc .516@34k (glove val .317).
+    "mix_HHsc": {"cam": "head", "crop": 0.8,
+                 "act": ("pilot_mix_HHsc", "mix_HHsc_act50/checkpoints/036000")},
+    "glove_HHsc": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHsc",
+                   "act": ("pilot_glove_HHsc", "glove_HHsc_act50/checkpoints/034000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

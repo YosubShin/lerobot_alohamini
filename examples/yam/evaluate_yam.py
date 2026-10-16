@@ -237,6 +237,15 @@ ARMS = {
                 "act": ("pilot_head_HB", "head_HB_act50/checkpoints/040000")},
     "mix_HB": {"cam": "forward",
                "act": ("pilot_mix_HB", "mix_HB_act50/checkpoints/048000")},
+    # --- fixed FORWARD cam as observation AND label source ("FB"): what a fixed camera gives as a data-collection
+    # device. Teleop pilot_head_Bgt (forward stream, encoder labels, 172/6 as Hgt); glove pilot_glove_FB = the FA
+    # recipe (fixed-cam poses, body-occluded stretches cut: 8-22%/session) with the forward view (255 train segments).
+    # Caveat: the forward cam sat LOW (the head-cam rig took the high vantage), so its occlusion rate is an upper bound.
+    # robot val (encoder-label chain, comparable to head_Hcgt .305 / wrist_gt .300 / mix_FA .257): head_Bgt .318@50k, mix_FB .256@44k (glove val .247).
+    "head_Bgt": {"cam": "forward",
+                 "act": ("pilot_head_Bgt", "head_Bgt_act50/checkpoints/050000")},
+    "mix_FB": {"cam": "forward",
+               "act": ("pilot_mix_FB", "mix_FB_act50/checkpoints/044000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

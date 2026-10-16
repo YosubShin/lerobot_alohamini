@@ -229,6 +229,14 @@ ARMS = {
                     "act": ("pilot_mix_HHs3c", "mix_HHs3c48_act50/checkpoints/032000")},
     "mix_HHs3c24": {"cam": "head", "crop": 0.8,
                     "act": ("pilot_mix_HHs3c", "mix_HHs3c24_act50/checkpoints/042000")},
+    # --- fixed FORWARD cam as the observation, HEAD-cam labels ("HB", 2026-10-16 09:17): same label chains and the
+    # same episodes/segments as head_HHc / mix_HHs3c, only the observation stream swapped (key observation.images.b0587,
+    # no crop). Control for "does the policy need the egocentric view" with the labels held fixed.
+    # robot val (comparable to the head arms: same labels, same val eps): head_HB .223@40k, mix_HB .232@48k (glove val .205).
+    "head_HB": {"cam": "forward",
+                "act": ("pilot_head_HB", "head_HB_act50/checkpoints/040000")},
+    "mix_HB": {"cam": "forward",
+               "act": ("pilot_mix_HB", "mix_HB_act50/checkpoints/048000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

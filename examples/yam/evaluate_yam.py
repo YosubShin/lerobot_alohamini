@@ -189,6 +189,11 @@ ARMS = {
                  "act": ("pilot_mix_HHsc", "mix_HHsc_act50/checkpoints/036000")},
     "glove_HHsc": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHsc",
                    "act": ("pilot_glove_HHsc", "glove_HHsc_act50/checkpoints/034000")},
+    # same, with the tile-solve reprojection gate at 8 px (200 segments, 194 train): mix .262@38k (glove .270), glove .503@36k
+    "mix_HHs2c": {"cam": "head", "crop": 0.8,
+                  "act": ("pilot_mix_HHs2c", "mix_HHs2c_act50/checkpoints/038000")},
+    "glove_HHs2c": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHs2c",
+                    "act": ("pilot_glove_HHs2c", "glove_HHs2c_act50/checkpoints/036000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

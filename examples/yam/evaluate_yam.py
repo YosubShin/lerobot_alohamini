@@ -259,6 +259,11 @@ ARMS = {
                    "act": ("pilot_head_Hgt", "head_Hgt48_act50/checkpoints/024000")},
     "mix_gHs3_48": {"cam": "head",
                     "act": ("pilot_mix_gHs3", "mix_gHs3_48_act50/checkpoints/040000")},
+    # head-cam labels on the WRIST observation: encoder teleop (Agt, 168) + 192 head-labelled glove segments (the two
+    # glove5 take-1 segments without wrist coverage dropped). vs mix_FA = label source only; vs mix_gHs3 = observation only.
+    # robot val: mix_gHA .252@36k (glove val .263).
+    "mix_gHA": {"cam": "fish",
+                "act": ("pilot_mix_gHA", "mix_gHA_act50/checkpoints/036000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

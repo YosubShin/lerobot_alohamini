@@ -198,6 +198,37 @@ ARMS = {
                   "act": ("pilot_mix_HHs2c", "mix_HHs2c_act50/checkpoints/038000")},
     "glove_HHs2c": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHs2c",
                     "act": ("pilot_glove_HHs2c", "glove_HHs2c_act50/checkpoints/036000")},
+    # --- final head-chain glove set (2026-10-16 02:40): tile layout v3 (calib/workspace_tiles_pilot_v3.json, refit from
+    # head14 single-tile poses; 3-tile solve rms 3.1 -> 0.7 px), base link calib/base_world_v3_20261016.json,
+    # single-tile chaining, 8 px gate, blind stretches > 0.3 s cut (198 eps -> 200 segments, 194 train; 0.7-7.4%
+    # of frames dropped per session). Teleop half unchanged (v2 layout, multi-tile averages absorb the offset).
+    # robot val: mix_HHs3c .266@46k (glove val .287), glove_HHs3c .520@36k (glove val .330).
+    "mix_HHs3c": {"cam": "head", "crop": 0.8,
+                  "act": ("pilot_mix_HHs3c", "mix_HHs3c_act50/checkpoints/046000")},
+    # same checkpoint with the head cam PARKED (tracker mode "static"): value of the head-cam tracking itself
+    "mix_HHs3c_static": {"cam": "head", "crop": 0.8, "tracker": "static",
+                         "act": ("pilot_mix_HHs3c", "mix_HHs3c_act50/checkpoints/046000")},
+    "glove_HHs3c": {"cam": "head", "crop": 0.8, "skeleton": "pilot_glove_HHs3c",
+                    "act": ("pilot_glove_HHs3c", "glove_HHs3c_act50/checkpoints/036000")},
+    # wrist-fisheye co-training, conventional UMI labelling: glove poses from the FIXED forward cam only (frames the
+    # body occludes are cut: 8-22% per session, 198 eps -> 259 segments, 253 train), gripper width from the head cam,
+    # observation = glove wrist fisheye; robot half = pilot_head_Agt (168 train, encoder labels).
+    # robot val: mix_FA .257@50k (glove val .183) vs wrist_gt .300.
+    "mix_FA": {"cam": "fish",
+               "act": ("pilot_mix_FA", "mix_FA_act50/checkpoints/050000")},
+    # teleop-budget ("exchange rate") arms: nested 96 -> 48 -> 24 teleop subsets (seed 7 from the 96 list), each
+    # with and without ALL 194 glove segments. robot val: head_HHc96 .331, head_HHc48 .427, head_HHc24 .574;
+    # mix_HHs3c96 .277@36k, mix_HHs3c48 .298@32k, mix_HHs3c24 .341@42k (172 teleop: head_HHc .287, mix_HHs3c .266).
+    "head_HHc48": {"cam": "head", "crop": 0.8,
+                   "act": ("pilot_head_HHc2", "head_HHc48_act50/checkpoints/026000")},
+    "head_HHc24": {"cam": "head", "crop": 0.8,
+                   "act": ("pilot_head_HHc2", "head_HHc24_act50/checkpoints/034000")},
+    "mix_HHs3c96": {"cam": "head", "crop": 0.8,
+                    "act": ("pilot_mix_HHs3c", "mix_HHs3c96_act50/checkpoints/036000")},
+    "mix_HHs3c48": {"cam": "head", "crop": 0.8,
+                    "act": ("pilot_mix_HHs3c", "mix_HHs3c48_act50/checkpoints/032000")},
+    "mix_HHs3c24": {"cam": "head", "crop": 0.8,
+                    "act": ("pilot_mix_HHs3c", "mix_HHs3c24_act50/checkpoints/042000")},
     # A/B (round-1 pose-action arms) RETIRED 2026-09-16: stale 22-ep
     # checkpoints, pre-wedge visuals; the pose-vs-joint ablation, if ever
     # wanted, should train on pilot_all6_B (built every round).

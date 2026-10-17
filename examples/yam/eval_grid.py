@@ -21,7 +21,8 @@ Policy order is shuffled per scene and per repeat (seeded), so no policy
 always goes first on a fresh scene. Live tallies after every trial.
 
 Outputs in --out_dir: trials.jsonl (one line per scored trial), per-scene
-reference PNGs, and per-trial tick logs (.npz) + observation videos, the
+reference PNGs, and per-trial tick logs (.npz) + observation videos + a 960x540 10 fps
+external-view video (_world.mp4) from the fixed workspace camera, the
 same format evaluate_yam.py writes.
 
 Usage (host first, policy-capable mode):
@@ -412,10 +413,21 @@ def main():
         import threading
         stop_live = threading.Event()
 
+        world_fps, world_p = 10, out / f"{run.name}_S{scene}r{rep}_{stamp}_world.mp4"
+        world_vw = cv2.VideoWriter(str(world_p), cv2.VideoWriter_fourcc(*"mp4v"), world_fps, (960, 540))
+
         def live_loop():  # ~7 Hz workspace view off the control thread (encode + send cost ~8 ms)
+            t_live, n_written = time.perf_counter(), 0  # external view of the trial, real-time paced
             while not stop_live.wait(0.15):
-                overlay.show_live(fwd.frame)
-        threading.Thread(target=live_loop, daemon=True).start()
+                fr = fwd.frame
+                overlay.show_live(fr)
+                target = int((time.perf_counter() - t_live) * world_fps) + 1
+                if target > n_written:
+                    small = cv2.resize(fr, (960, 540), interpolation=cv2.INTER_AREA)
+                    for _ in range(target - n_written):
+                        world_vw.write(small)
+                    n_written = target
+        live_thread = threading.Thread(target=live_loop, daemon=True); live_thread.start()
         run.reset()
         q_last, g_last = raw_joints()
         rows, writers = [], {}
@@ -456,7 +468,8 @@ def main():
                 writers[k].write(fr[:, :, ::-1])
             precise_sleep(max(interval - (time.perf_counter() - t0), 0))
         elapsed = time.perf_counter() - t_start
-        stop_live.set()
+        stop_live.set(); live_thread.join(timeout=2.0)
+        world_vw.release()
         for vw in writers.values():
             vw.release()
         npz = out / f"{run.name}_S{scene}r{rep}_{stamp}.npz"
